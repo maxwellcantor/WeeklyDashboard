@@ -236,6 +236,16 @@ tr.co-total:hover td{background:var(--surface2)}
     </div>
   </div>
 
+  <!-- ── Lost Visits ── -->
+  <div class="sl" style="margin-bottom:8px">Lost visits</div>
+  <div class="tbl-section" style="margin-bottom:22px">
+    <div class="tbl-head"><h3 id="lost-tbl-title">Lost visits summary</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="lost-tbl-empty">Loading…</div>
+      <table id="lost-tbl" style="display:none"><thead id="lost-tbl-h"></thead><tbody id="lost-tbl-b"></tbody></table>
+    </div>
+  </div>
+
   <!-- ── Capacity ── -->
   <div class="sl" style="margin-bottom:8px">Capacity</div>
   <div id="no-cap" class="no-cap">No capacity data for this week — showing most recent available week instead.</div>
@@ -293,6 +303,16 @@ const activeRange = () => {
 
 window.addEventListener('load', loadAll);
 
+// Auto-report height to parent iframe so WordPress page resizes correctly
+function reportHeight() {
+  const h = document.body.scrollHeight;
+  window.parent.postMessage({ type: 'dashboardHeight', height: h }, '*');
+}
+// Report after every render and on resize
+const _ro = new ResizeObserver(reportHeight);
+_ro.observe(document.body);
+setInterval(reportHeight, 800);
+
 // ── Load ──────────────────────────────────────────────────────────────────
 async function loadAll() {
   setBtnLoading(true); setStatus('Fetching from Google Sheets…','loading');
@@ -302,6 +322,7 @@ async function loadAll() {
     if (!data.ok) throw new Error(data.error || 'Script error');
     store = data;
     buildWeekDropdowns();
+    buildLostWeekDropdown();
     renderAll();
     const now = new Date();
     document.getElementById('updated-lbl').textContent =
@@ -349,6 +370,7 @@ function buildWeekDropdowns() {
 function onYearChange() {
   selYear=document.getElementById('year-sel').value; selWeekIdx=-1;
   buildWeekDropdowns();
+  buildLostWeekDropdown();
   document.getElementById('vc-title').textContent='Weekly visits — '+selYear;
   document.getElementById('rc-title').textContent='Weekly referrals — '+selYear;
   renderAll();
@@ -390,6 +412,7 @@ function renderAll() {
   renderClinicTable('vtbl','vtbl-h','vtbl-b','vtbl-empty', v, r, fromI, toI);
   renderClinicTable('rtbl','rtbl-h','rtbl-b','rtbl-empty', r, v, fromI, toI);
   renderCapacity();
+  renderLostVisits();
   updateRangeHint(v, fromI, toI);
 }
 
@@ -790,6 +813,89 @@ function setStatus(msg,type){const el=document.getElementById('status');el.textC
 function hideStatus(){document.getElementById('status').className='';}
 function addTH(row,text,cls){const th=document.createElement('th');th.textContent=text;if(cls)th.className=cls;row.appendChild(th);return th;}
 function addTD(row,text,cls){const td=document.createElement('td');td.textContent=text;if(cls)td.className=cls;row.appendChild(td);return td;}
+
+// ── Lost Visits ───────────────────────────────────────────────────────────
+function buildLostWeekDropdown() { /* no-op — uses main week selector */ }
+function onLostWeekChange() {}
+
+function renderLostVisits() {
+  const lv = store.lostVisits || [];
+  if (!lv.length) return;
+
+  // Match to the currently selected visits week by label
+  const visWI = curWI();
+  const visLabel = (visits().weeks[visWI] || {}).label || '';
+  let wi = lv.findIndex(w => w.label === visLabel);
+  if (wi < 0) {
+    // Fall back: latest week matching selected year
+    const yr = parseInt(selYear);
+    for (let i = lv.length - 1; i >= 0; i--) {
+      if (lv[i].year === yr) { wi = i; break; }
+    }
+  }
+  if (wi < 0) wi = lv.length - 1;
+
+  const week = lv[wi];
+  if (!week) return;
+
+  document.getElementById('lost-tbl-title').textContent =
+    'Lost visits — week of ' + week.label;
+
+  const regMap = buildRegionMap();
+  const regF = selRegion === 'All' ? null : selRegion;
+  const clinicsToShow = week.clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+
+  // ── Summary table ──
+  const thead = document.getElementById('lost-tbl-h');
+  const tbody = document.getElementById('lost-tbl-b');
+  thead.innerHTML = ''; tbody.innerHTML = '';
+
+  const hr = thead.insertRow();
+  addTH(hr, 'Clinic');
+  week.days.forEach(d => addTH(hr, d.day, 'r'));
+  addTH(hr, 'Total lost', 'r');
+  addTH(hr, '% lost', 'r');
+
+  for (const clinic of clinicsToShow) {
+    const tr = tbody.insertRow();
+    addTD(tr, clinic);
+    week.days.forEach(d => {
+      const v = d.values[clinic];
+      addTD(tr, v != null ? fmt(v) : '—', 'r');
+    });
+    const lost = week.totalLost[clinic];
+    const pct  = week.pctLost[clinic];
+    const lTd = addTD(tr, lost != null ? fmt(lost) : '—', 'r');
+    lTd.style.color = 'var(--red)'; lTd.style.fontWeight = '600';
+    const absPct = pct != null ? Math.abs(pct) : null;
+    const pTd = addTD(tr, absPct != null ? absPct.toFixed(1) + '%' : '—', 'r');
+    pTd.style.color = lostPctColor(absPct);
+    pTd.style.fontWeight = '600';
+  }
+
+  // Company row
+  const coTr = tbody.insertRow(); coTr.className = 'co-total';
+  addTD(coTr, 'Company total');
+  week.days.forEach(d => addTD(coTr, d.companyTotal != null ? fmt(d.companyTotal) : '—', 'r'));
+  const coL = addTD(coTr, week.companyLostTotal != null ? fmt(week.companyLostTotal) : '—', 'r');
+  coL.style.color = 'var(--red)';
+  const coAbsPct = week.companyPctLost != null ? Math.abs(week.companyPctLost) : null;
+  const coP = addTD(coTr, coAbsPct != null ? coAbsPct.toFixed(1) + '%' : '—', 'r');
+  coP.style.color = lostPctColor(coAbsPct);
+  coP.style.fontWeight = '600';
+
+  document.getElementById('lost-tbl-empty').style.display = 'none';
+  document.getElementById('lost-tbl').style.display = 'table';
+}
+
+// <5% dark green, 5-10% green, 10-15% red, >15% dark red
+function lostPctColor(pct) {
+  if (pct == null) return 'var(--faint)';
+  if (pct < 5)  return '#155724';
+  if (pct < 10) return '#26703a';
+  if (pct < 15) return '#b02020';
+  return '#6b0000';
+}
 function setBtnLoading(on){
   const btn=document.getElementById('refresh-btn');btn.disabled=on;
   btn.innerHTML=on?'<span class="spin"></span> Loading…':
