@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Connections PT — Operations Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+:root{
+  --bg:#f2f1ee;--surface:#fff;--surface2:#f7f6f3;
+  --border:rgba(0,0,0,0.08);--border-md:rgba(0,0,0,0.14);
+  --text:#181816;--muted:#6a6962;--faint:#a09e98;
+  --accent:#1756a0;--accent-bg:#e8f0fb;
+  --green:#26703a;--green-bg:#e4f2e8;
+  --amber:#a85c08;--amber-bg:#fdf0e0;
+  --red:#b02020;--red-bg:#fce8e8;
+  --r:10px;--rsm:6px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#141412;--surface:#1e1e1c;--surface2:#252523;
+  --border:rgba(255,255,255,0.07);--border-md:rgba(255,255,255,0.14);
+  --text:#e4e3de;--muted:#9e9c96;--faint:#606058;
+  --accent:#5b9be0;--accent-bg:#18283e;
+  --green:#45a858;--green-bg:#162218;
+  --amber:#d08830;--amber-bg:#261a08;
+  --red:#d84444;--red-bg:#220e0e;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh}
+header{background:var(--surface);border-bottom:0.5px solid var(--border-md);padding:0 24px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
+.logo{font-size:15px;font-weight:700;letter-spacing:-.3px}.logo em{font-style:normal;color:var(--accent)}
+.hright{display:flex;align-items:center;gap:10px}
+.updated{font-size:11px;color:var(--faint)}
+#refresh-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--accent);color:#fff;border:none;border-radius:var(--rsm);font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s}
+#refresh-btn:hover{opacity:.85}
+#refresh-btn:disabled{opacity:.45;cursor:not-allowed}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#status{display:none;align-items:center;padding:7px 24px;font-size:12px;font-weight:500}
+#status.show{display:flex}
+#status.loading{background:var(--accent-bg);color:var(--accent)}
+#status.ok{background:var(--green-bg);color:var(--green)}
+#status.err{background:var(--red-bg);color:var(--red)}
+main{padding:20px 24px 48px;max-width:1440px;margin:0 auto}
+.sl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:10px}
+
+/* Controls */
+.controls{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.cg{display:flex;align-items:center;gap:6px}
+.cl{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap}
+.ctrl-divider{width:1px;height:20px;background:var(--border-md);margin:0 4px}
+select{padding:6px 28px 6px 10px;border:0.5px solid var(--border-md);border-radius:var(--rsm);background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.mode-pill{display:flex;gap:2px;background:var(--surface2);border:0.5px solid var(--border);border-radius:var(--rsm);padding:3px}
+.mpbtn{padding:4px 11px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;color:var(--muted);border:none;background:none;transition:all .12s;white-space:nowrap}
+.mpbtn.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.range-hint{font-size:11px;color:var(--accent);font-weight:500;padding:4px 8px;background:var(--accent-bg);border-radius:var(--rsm)}
+
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:22px}
+.kpi{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.kpi .lbl{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:5px}
+.kpi .val{font-size:26px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.5px}
+.kpi .sub{font-size:11px;color:var(--faint);margin-top:4px}
+.kpi.hi{border-color:var(--accent);background:var(--accent-bg)}.kpi.hi .val{color:var(--accent)}
+.sub.pos{color:var(--green)!important}.sub.neg{color:var(--red)!important}
+
+/* Charts */
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+@media(max-width:860px){.charts-row{grid-template-columns:1fr}}
+.chart-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:18px 20px}
+.chart-card h3{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:14px}
+.chart-wrap{position:relative;height:220px}
+
+/* Tables */
+.tbl-section{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:22px}
+.tbl-head{padding:14px 18px;border-bottom:0.5px solid var(--border)}
+.tbl-head h3{font-size:13px;font-weight:600}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:7px 14px;background:var(--surface2);color:var(--muted);font-weight:600;text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;border-bottom:0.5px solid var(--border);white-space:nowrap}
+td{padding:8px 14px;border-bottom:0.5px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.r{text-align:right;font-variant-numeric:tabular-nums}
+.dpos{color:var(--green)}.dneg{color:var(--red)}
+.empty{padding:36px;text-align:center;color:var(--faint);font-size:13px}
+/* Company total row */
+tr.co-total td{background:var(--surface2);font-weight:700;border-top:1.5px solid var(--border-md)}
+tr.co-total:hover td{background:var(--surface2)}
+
+/* Capacity controls row */
+.cap-controls{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.cap-tabs{display:flex;gap:2px;background:var(--surface2);border:0.5px solid var(--border);border-radius:var(--rsm);padding:3px}
+.cap-tab{padding:5px 14px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;color:var(--muted);border:none;background:none;transition:all .12s}
+.cap-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* Capacity cards */
+.cap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:28px}
+.clinic-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:14px 16px;transition:box-shadow .12s}
+.clinic-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.cc-name{font-size:13px;font-weight:600}
+/* Colored headers */
+.cc-head-Blue  {background:#1756a0;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Orange{background:#c06010;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Green {background:#26703a;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Red   {background:#b02020;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Purple{background:#6030a8;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Unknown{background:var(--surface2);border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-company{background:#3a3836;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Blue .cc-name,.cc-head-Orange .cc-name,.cc-head-Green .cc-name,
+.cc-head-Red .cc-name,.cc-head-Purple .cc-name,.cc-head-company .cc-name{color:#fff;}
+.cc-head-Unknown .cc-name{color:var(--text);}
+/* Region bars */
+.bar-mon-Blue  {background:#1756a0}.bar-mon-Orange{background:#c06010}
+.bar-mon-Green {background:#26703a}.bar-mon-Red   {background:#b02020}
+.bar-mon-Purple{background:#6030a8}.bar-mon-Unknown{background:var(--faint)}
+.bar-fri-Blue  {background:rgba(23,86,160,.55)}.bar-fri-Orange{background:rgba(192,96,16,.55)}
+.bar-fri-Green {background:rgba(38,112,58,.55)}.bar-fri-Red   {background:rgba(176,32,32,.55)}
+.bar-fri-Purple{background:rgba(96,48,168,.55)}.bar-fri-Unknown{background:rgba(160,158,152,.55)}
+/* Capacity day/bar */
+.cap-day{margin-bottom:10px}
+.cap-day-lbl{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+.bar-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px}
+.pct-val{font-weight:700}
+.pct-good{color:var(--green)}.pct-warn{color:var(--amber)}.pct-over{color:var(--red)}
+.bar-bg{background:var(--surface2);border-radius:3px;height:6px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .45s ease}
+.cc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border)}
+.cc-stat{font-size:10px;color:var(--muted);text-align:center}
+.cc-stat span{font-weight:700;color:var(--text);display:block;font-size:12px}
+/* Therapist rows */
+.t-list{margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);display:flex;flex-direction:column;gap:7px}
+.t-top{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.t-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;white-space:nowrap}
+.badge.g{background:var(--green-bg);color:var(--green)}
+.badge.w{background:var(--amber-bg);color:var(--amber)}
+.badge.r{background:var(--red-bg);color:var(--red)}
+.badge.x{background:var(--surface2);color:var(--faint)}
+.t-detail{font-size:10px;color:var(--faint)}
+.t-slots{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;margin-top:2px}
+/* Notices */
+.no-cap{background:var(--amber-bg);border:0.5px solid var(--amber);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--amber);margin-bottom:14px;display:none}
+.no-cap.show{display:block}
+/* Multi-week summary card */
+.range-summary{background:var(--accent-bg);border:0.5px solid var(--accent);border-radius:var(--r);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--accent);font-weight:500}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Connections <em>PT</em> — Operations</div>
+  <div class="hright">
+    <span class="updated" id="updated-lbl">Not loaded</span>
+    <button id="refresh-btn" onclick="loadAll()">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8a6.5 6.5 0 1 1 1.1 3.6"/><polyline points="1.5,12 1.5,8 5.5,8"/></svg>
+      Refresh
+    </button>
+  </div>
+</header>
+<div id="status"></div>
+<main>
+
+  <!-- ── Controls ── -->
+  <div class="controls">
+    <div class="cg"><span class="cl">Year</span>
+      <select id="year-sel" onchange="onYearChange()">
+        <option value="2026">2026</option>
+        <option value="2025">2025</option>
+      </select>
+    </div>
+    <div class="ctrl-divider"></div>
+    <!-- View mode toggle -->
+    <div class="cg"><span class="cl">View</span>
+      <div class="mode-pill">
+        <button class="mpbtn active" id="mode-single" onclick="setViewMode('single',this)">Single week</button>
+        <button class="mpbtn" id="mode-range"  onclick="setViewMode('range',this)">Date range</button>
+      </div>
+    </div>
+    <!-- Single week controls -->
+    <div id="ctrl-single" class="cg"><span class="cl">Week (Mon)</span>
+      <select id="week-sel" onchange="onWeekChange()"><option value="-1">Latest week</option></select>
+    </div>
+    <!-- Range controls -->
+    <div id="ctrl-range" style="display:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="cg"><span class="cl">From</span>
+        <select id="range-from" onchange="onRangeChange()"><option value="-1">—</option></select>
+      </div>
+      <div class="cg"><span class="cl">To</span>
+        <select id="range-to" onchange="onRangeChange()"><option value="-1">—</option></select>
+      </div>
+      <div id="range-hint" class="range-hint" style="display:none"></div>
+    </div>
+    <div class="ctrl-divider"></div>
+    <div class="cg"><span class="cl">Region</span>
+      <select id="region-sel" onchange="onRegionChange()">
+        <option value="All">All regions</option>
+        <option value="Blue">Blue</option>
+        <option value="Orange">Orange</option>
+        <option value="Green">Green</option>
+        <option value="Red">Red</option>
+        <option value="Purple">Purple</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── KPIs ── -->
+  <div class="sl" id="snapshot-label">Weekly snapshot</div>
+  <div class="kpi-grid">
+    <div class="kpi hi"><div class="lbl">Total visits</div><div class="val" id="kv">—</div><div class="sub" id="kvs">—</div></div>
+    <div class="kpi"   ><div class="lbl">Total referrals</div><div class="val" id="kr">—</div><div class="sub" id="krs">—</div></div>
+    <div class="kpi"   ><div class="lbl">YTD visits</div><div class="val" id="ky">—</div><div class="sub" id="kys">—</div></div>
+    <div class="kpi"   ><div class="lbl">YTD referrals</div><div class="val" id="kyr">—</div><div class="sub" id="kyrs">—</div></div>
+    <div class="kpi"   id="kpi-lost"><div class="lbl">Lost visits</div><div class="val" id="kl">—</div><div class="sub">Visits minus referrals</div></div>
+  </div>
+
+  <!-- ── Charts (single-week only) ── -->
+  <div id="charts-section">
+    <div class="charts-row">
+      <div class="chart-card"><h3 id="vc-title">Weekly visits — 2026</h3><div class="chart-wrap"><canvas id="vc"></canvas></div></div>
+      <div class="chart-card"><h3 id="rc-title">Weekly referrals — 2026</h3><div class="chart-wrap"><canvas id="rc"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- ── Visits table ── -->
+  <div class="tbl-section">
+    <div class="tbl-head"><h3 id="vtbl-title">Visits by clinic</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="vtbl-empty">Loading…</div>
+      <table id="vtbl" style="display:none"><thead id="vtbl-h"></thead><tbody id="vtbl-b"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Referrals table ── -->
+  <div class="tbl-section">
+    <div class="tbl-head"><h3 id="rtbl-title">Referrals by clinic</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="rtbl-empty">Loading…</div>
+      <table id="rtbl" style="display:none"><thead id="rtbl-h"></thead><tbody id="rtbl-b"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Capacity ── -->
+  <div class="sl" style="margin-bottom:8px">Capacity</div>
+  <div id="no-cap" class="no-cap">No capacity data for this week — showing most recent available week instead.</div>
+  <div class="cap-controls">
+    <div class="cap-tabs">
+      <button class="cap-tab active" onclick="switchCap('clinic',this)">Clinic capacity</button>
+      <button class="cap-tab"        onclick="switchCap('therapist',this)">Therapist capacity</button>
+    </div>
+    <div class="cg"><span class="cl">Filter region</span>
+      <select id="cap-region-sel" onchange="onCapRegionChange()">
+        <option value="All">All regions</option>
+        <option value="Blue">Blue</option>
+        <option value="Orange">Orange</option>
+        <option value="Green">Green</option>
+        <option value="Red">Red</option>
+        <option value="Purple">Purple</option>
+      </select>
+    </div>
+  </div>
+  <div class="cap-grid" id="cap-grid">
+    <div class="empty" style="grid-column:1/-1">Loading…</div>
+  </div>
+
+</main>
+<script>
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzKO6amg9iKfjkuynSBEXD6roYyL1Gaye9Vd18yXWLwrOoYjZgPSkSPTIScJ3cFXCjY/exec';
+Chart.register(ChartDataLabels);
+
+let store       = {};
+let selYear     = '2026';
+let selWeekIdx  = -1;
+let selRegion   = 'All';
+let capRegion   = 'All';
+let capMode     = 'clinic';
+let viewMode    = 'single'; // 'single' | 'range'
+let rangeFrom   = -1;       // index into visits().weeks
+let rangeTo     = -1;
+let vChart = null, rChart = null;
+
+const visits    = () => store['visits'    + selYear] || {clinics:[],weeks:[]};
+const referrals = () => store['referrals' + selYear] || {clinics:[],weeks:[]};
+const curWI     = () => {
+  const w=visits().weeks; if(!w.length)return -1;
+  return selWeekIdx===-1?w.length-1:Math.min(selWeekIdx,w.length-1);
+};
+
+// Returns the range of week indices currently active
+const activeRange = () => {
+  if (viewMode==='single') { const wi=curWI(); return [wi,wi]; }
+  const wks=visits().weeks;
+  const f = rangeFrom===-1 ? 0 : Math.min(rangeFrom, wks.length-1);
+  const t = rangeTo  ===-1 ? wks.length-1 : Math.min(rangeTo, wks.length-1);
+  return [Math.min(f,t), Math.max(f,t)];
+};
+
+window.addEventListener('load', loadAll);
+
+// ── Load ──────────────────────────────────────────────────────────────────
+async function loadAll() {
+  setBtnLoading(true); setStatus('Fetching from Google Sheets…','loading');
+  try {
+    const res  = await fetch(SCRIPT_URL + '?cb=' + Date.now());
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Script error');
+    store = data;
+    buildWeekDropdowns();
+    renderAll();
+    const now = new Date();
+    document.getElementById('updated-lbl').textContent =
+      'Updated ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    setStatus('Data loaded.','ok'); setTimeout(hideStatus,3000);
+  } catch(e) { setStatus('Error: '+e.message,'err'); console.error(e); }
+  setBtnLoading(false);
+}
+
+// ── Dropdowns ─────────────────────────────────────────────────────────────
+function buildWeekDropdowns() {
+  const weeks = visits().weeks;
+  const yr    = parseInt(selYear);
+  const yrWks = [];
+  for (let i=0;i<weeks.length;i++) {
+    const w=weeks[i]; if(!w.label||w.year!==yr) continue;
+    yrWks.push({i,label:w.label});
+  }
+
+  // Single week dropdown (most recent first)
+  const sw = document.getElementById('week-sel');
+  sw.innerHTML = '<option value="-1">Latest week</option>';
+  for (let k=yrWks.length-1;k>=0;k--) {
+    const o=document.createElement('option');
+    o.value=yrWks[k].i; o.textContent=yrWks[k].label; sw.appendChild(o);
+  }
+  selWeekIdx=-1; sw.value='-1';
+
+  // Range dropdowns (chronological)
+  const rf=document.getElementById('range-from');
+  const rt=document.getElementById('range-to');
+  rf.innerHTML='<option value="-1">Select start…</option>';
+  rt.innerHTML='<option value="-1">Select end…</option>';
+  for (const {i,label} of yrWks) {
+    const o1=document.createElement('option'); o1.value=i; o1.textContent=label; rf.appendChild(o1);
+    const o2=document.createElement('option'); o2.value=i; o2.textContent=label; rt.appendChild(o2);
+  }
+  // Default range: first week to latest
+  if (yrWks.length>=2) {
+    rangeFrom=yrWks[0].i; rangeTo=yrWks[yrWks.length-1].i;
+    rf.value=rangeFrom; rt.value=rangeTo;
+  }
+}
+
+function onYearChange() {
+  selYear=document.getElementById('year-sel').value; selWeekIdx=-1;
+  buildWeekDropdowns();
+  document.getElementById('vc-title').textContent='Weekly visits — '+selYear;
+  document.getElementById('rc-title').textContent='Weekly referrals — '+selYear;
+  renderAll();
+}
+function onWeekChange()     { selWeekIdx=parseInt(document.getElementById('week-sel').value); renderAll(); }
+function onRegionChange()   { selRegion=document.getElementById('region-sel').value; renderAll(); }
+function onCapRegionChange(){ capRegion=document.getElementById('cap-region-sel').value; renderCapacity(); }
+function onRangeChange() {
+  rangeFrom=parseInt(document.getElementById('range-from').value);
+  rangeTo  =parseInt(document.getElementById('range-to').value);
+  renderAll();
+}
+
+function setViewMode(mode, btn) {
+  viewMode=mode;
+  document.querySelectorAll('.mpbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('ctrl-single').style.display = mode==='single'?'flex':'none';
+  document.getElementById('ctrl-range').style.display  = mode==='range' ?'flex':'none';
+  document.getElementById('charts-section').style.display = mode==='single'?'':'none';
+  document.getElementById('snapshot-label').textContent = mode==='single'?'Weekly snapshot':'Date range summary';
+  renderAll();
+}
+
+function switchCap(mode,btn) {
+  capMode=mode;
+  document.querySelectorAll('.cap-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCapacity();
+}
+
+// ── Master render ─────────────────────────────────────────────────────────
+function renderAll() {
+  const v=visits(), r=referrals();
+  if (!v.weeks.length) return;
+  const [fromI, toI] = activeRange();
+  updateKPIs(v, r, fromI, toI);
+  if (viewMode==='single') renderCharts(v, r, fromI);
+  renderClinicTable('vtbl','vtbl-h','vtbl-b','vtbl-empty', v, r, fromI, toI);
+  renderClinicTable('rtbl','rtbl-h','rtbl-b','rtbl-empty', r, v, fromI, toI);
+  renderCapacity();
+  updateRangeHint(v, fromI, toI);
+}
+
+function updateRangeHint(v, fromI, toI) {
+  const hint=document.getElementById('range-hint');
+  if (viewMode!=='range'||fromI<0||toI<0){hint.style.display='none';return;}
+  const wks=v.weeks;
+  const n=toI-fromI+1;
+  hint.textContent = `${n} week${n!==1?'s':''}: ${(wks[fromI]||{}).label||'?'} – ${(wks[toI]||{}).label||'?'}`;
+  hint.style.display='';
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────
+function updateKPIs(v, r, fromI, toI) {
+  // Sum visits/referrals across the range
+  const sumRange = (data, fi, ti) =>
+    data.weeks.slice(fi, ti+1).reduce((s,w)=>s+(w.total||0), 0);
+
+  const vn = sumRange(v, fromI, toI);
+  const rn = sumRange(r, fromI, toI);
+
+  // YTD through the end of the range
+  const ytdV = v.weeks.slice(0, toI+1).reduce((s,w)=>s+(w.total||0), 0);
+  const ytdR = r.weeks.slice(0, toI+1).reduce((s,w)=>s+(w.total||0), 0);
+
+  // Weekly avg for the selected year
+  const yr=parseInt(selYear);
+  const allV=v.weeks.filter(w=>w.year===yr&&w.total>0);
+  const avgV=allV.length?Math.round(allV.reduce((s,w)=>s+(w.total||0),0)/allV.length):0;
+  const allR=r.weeks.filter(w=>w.year===yr&&(w.total||0)>0);
+  const avgR=allR.length?Math.round(allR.reduce((s,w)=>s+(w.total||0),0)/allR.length):0;
+
+  set('kv', fmt(vn)); set('kr', fmt(rn));
+  set('kl', fmt(Math.max(0,vn-rn)));
+  set('ky', fmt(ytdV)); set('kys','YTD through '+(v.weeks[toI]||{}).label||'');
+  set('kyr',fmt(ytdR)); set('kyrs','YTD through '+(v.weeks[toI]||{}).label||'');
+
+  if (viewMode==='single') {
+    setDeltaAvg('kvs', vn, avgV);
+    setDeltaAvg('krs', rn, avgR);
+  } else {
+    const n=toI-fromI+1;
+    const el=document.getElementById('kvs');
+    if(el){el.textContent=n+' week'+(n!==1?'s':'')+' total';el.className='sub';}
+    const er=document.getElementById('krs');
+    if(er){er.textContent=n+' week'+(n!==1?'s':'')+' total';er.className='sub';}
+  }
+}
+
+function setDeltaAvg(id,val,avg){
+  const el=document.getElementById(id);if(!el)return;
+  const delta=val-avg;
+  el.textContent=(delta>=0?'+':'')+fmt(delta)+' vs '+fmt(avg)+' wk avg';
+  el.className='sub '+(delta>=0?'pos':'neg');
+}
+
+// ── Charts (single week only) ─────────────────────────────────────────────
+function renderCharts(v, r, wi) {
+  if (!v.weeks.length) return;
+  const isDark=matchMedia('(prefers-color-scheme:dark)').matches;
+  const grid=isDark?'rgba(255,255,255,.05)':'rgba(0,0,0,.05)';
+  const tick=isDark?'#9e9c96':'#6a6962';
+  const lblC=isDark?'#c8c6c0':'#2a2a28';
+  const avgLineColor=isDark?'rgba(168,92,8,.7)':'rgba(168,92,8,.8)';
+  const yr=parseInt(selYear);
+
+  const allV=[],allR=[];
+  v.weeks.forEach((w,i)=>{if(w.year===yr){allV.push({w,i});allR.push({w:r.weeks[i]||{total:0},i});}});
+  const vWD=allV.filter(x=>x.w.total>0), rWD=allR.filter(x=>x.w.total>0);
+  const avgV=vWD.length?vWD.reduce((s,x)=>s+(x.w.total||0),0)/vWD.length:0;
+  const avgR=rWD.length?rWD.reduce((s,x)=>s+(x.w.total||0),0)/rWD.length:0;
+
+  const wiInAll=allV.findIndex(x=>x.i===wi);
+  const start=Math.max(0,wiInAll-2), end=Math.min(allV.length-1,wiInAll+2);
+  const windowV=allV.slice(start,end+1);
+  const labels=[],vVals=[],rVals=[];
+  windowV.forEach(x=>{labels.push(x.w.label);vVals.push(x.w.total||0);rVals.push((r.weeks[x.i]||{}).total||0);});
+
+  const selInW=windowV.findIndex(x=>x.i===wi);
+  const ptR=labels.map((_,i)=>i===selInW?6:3);
+  const ptBg=c=>labels.map((_,i)=>i===selInW?c:c+'70');
+
+  const mkDs=(vals,color)=>({
+    data:vals,borderColor:color,backgroundColor:color+'18',borderWidth:2,fill:true,tension:0.3,
+    pointRadius:ptR,pointBackgroundColor:ptBg(color),pointBorderColor:ptBg(color),pointHoverRadius:6,
+    datalabels:{color:lblC,font:{size:10,weight:'600'},align:'top',anchor:'end',display:true,formatter:v=>v>0?Math.round(v).toLocaleString():''}
+  });
+  const avgDs=(avg,label)=>({
+    label,data:labels.map(()=>Math.round(avg)),borderColor:avgLineColor,borderWidth:1.5,borderDash:[4,4],
+    pointRadius:0,fill:false,tension:0,
+    datalabels:{display:ctx=>ctx.dataIndex===labels.length-1,color:avgLineColor,font:{size:9,weight:'600'},align:'right',anchor:'end',formatter:v=>'avg '+Math.round(v).toLocaleString()}
+  });
+  const opts={
+    responsive:true,maintainAspectRatio:false,layout:{padding:{top:28,right:60}},
+    plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false},datalabels:{}},
+    scales:{x:{grid:{color:grid},ticks:{color:tick,font:{size:11}}},y:{grid:{color:grid},ticks:{color:tick,font:{size:10}}}}
+  };
+  mkChart('vc',labels,[mkDs(vVals,'#1756a0'),avgDs(avgV,'Avg')],opts,'v');
+  mkChart('rc',labels,[mkDs(rVals,'#26703a'),avgDs(avgR,'Avg')],opts,'r');
+}
+
+function mkChart(id,labels,datasets,options,key){
+  const ctx=document.getElementById(id).getContext('2d');
+  if(key==='v'&&vChart){vChart.destroy();vChart=null;}
+  if(key==='r'&&rChart){rChart.destroy();rChart=null;}
+  const c=new Chart(ctx,{type:'line',data:{labels,datasets},options});
+  if(key==='v')vChart=c;else rChart=c;
+}
+
+// ── Clinic tables ─────────────────────────────────────────────────────────
+// In single mode: show ±2 weeks window + yr avg column
+// In range mode: show summed totals for the range + avg per week column
+function renderClinicTable(tblId,hId,bId,emptyId,data,otherData,fromI,toI){
+  if(!data||!data.weeks.length)return;
+  const yr=parseInt(selYear);
+  const allWks=data.weeks.map((w,i)=>({w,i})).filter(x=>x.w.year===yr);
+
+  const thead=document.getElementById(hId),tbody=document.getElementById(bId);
+  thead.innerHTML='';tbody.innerHTML='';
+  const hr=thead.insertRow();
+
+  const regMap=buildRegionMap();
+  const regF=selRegion==='All'?null:selRegion;
+
+  // Yearly avg per clinic (all weeks with data)
+  const clinicAvg={};
+  for(const clinic of data.clinics){
+    const vals=allWks.map(x=>x.w.values[clinic]||0).filter(v=>v>0);
+    clinicAvg[clinic]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+  }
+
+  let showWeeks, isRange;
+
+  if (viewMode==='single') {
+    isRange=false;
+    const wi=fromI;
+    const wiInAll=allWks.findIndex(x=>x.i===wi);
+    const s=Math.max(0,wiInAll-2), e=Math.min(allWks.length-1,wiInAll+2);
+    showWeeks=allWks.slice(s,e+1);
+
+    addTH(hr,'Clinic');
+    showWeeks.forEach(x=>{
+      const th=addTH(hr,x.w.label,'r');
+      if(x.i===wi)th.style.background='var(--accent-bg)';
+    });
+    addTH(hr,'Yr avg','r');
+  } else {
+    isRange=true;
+    const rangeWks=allWks.filter(x=>x.i>=fromI&&x.i<=toI);
+    showWeeks=rangeWks;
+    const n=rangeWks.length;
+
+    addTH(hr,'Clinic');
+    // In range mode just show one summed column + avg/wk
+    addTH(hr,`Total (${n} wk${n!==1?'s':''})`.toLowerCase(),'r');
+    addTH(hr,'Avg/wk','r');
+  }
+
+  // Company total trackers
+  const coTotals = isRange ? [0,0] : showWeeks.map(()=>0);
+  let coSum=0, coAvgSum=0, clinicCount=0;
+
+  for(const clinic of data.clinics){
+    if(regF&&regMap[clinic.toLowerCase()]!==regF)continue;
+    clinicCount++;
+    const tr=tbody.insertRow(); addTD(tr,clinic);
+
+    if (!isRange) {
+      let selV=0;
+      showWeeks.forEach((x,idx)=>{
+        const v=x.w.values[clinic]||0;
+        coTotals[idx]=(coTotals[idx]||0)+v;
+        const td=addTD(tr,v?fmt(v):'—','r');
+        if(x.i===fromI){selV=v;td.style.background='var(--accent-bg)';td.style.fontWeight='600';}
+      });
+      const avg=clinicAvg[clinic]||0;
+      coAvgSum+=avg;
+      const dTd=addTD(tr,'','r');
+      dTd.innerHTML=`<span style="font-weight:600">${fmt(avg)}</span>`;
+    } else {
+      const rangeWks=showWeeks;
+      const total=rangeWks.reduce((s,x)=>s+(x.w.values[clinic]||0),0);
+      const n=rangeWks.length;
+      const avg=n>0?total/n:0;
+      coSum+=total; coAvgSum+=avg;
+      addTD(tr, total?fmt(total):'—','r');
+      const aTd=addTD(tr,'','r');
+      aTd.innerHTML=`<span style="font-weight:600">${fmt(avg)}</span>`;
+    }
+  }
+
+  // Company total row
+  const coTr=tbody.insertRow(); coTr.className='co-total';
+  addTD(coTr,'Company total');
+  if(!isRange){
+    showWeeks.forEach((_,idx)=>addTD(coTr,coTotals[idx]?fmt(coTotals[idx]):'—','r'));
+    const coAvg=clinicCount?coAvgSum/clinicCount:0;
+    addTD(coTr,fmt(coAvgSum),'r');
+  } else {
+    addTD(coTr,coSum?fmt(coSum):'—','r');
+    const n=showWeeks.length;
+    addTD(coTr,n>0?fmt(coSum/n):'—','r');
+  }
+
+  document.getElementById(emptyId).style.display='none';
+  document.getElementById(tblId).style.display='table';
+}
+
+// ── Capacity ──────────────────────────────────────────────────────────────
+// In range mode: average Mon/Fri pct across all weeks in range per therapist
+function renderCapacity(){
+  const grid=document.getElementById('cap-grid');
+  const noCapEl=document.getElementById('no-cap');
+  const allCap=store.capacity||[];
+  if(!allCap.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">Loading…</div>';return;}
+
+  const norm=s=>{if(!s)return'';const p=String(s).split('/');if(p.length===3)return parseInt(p[0])+'/'+parseInt(p[1])+'/'+p[2];return String(s).trim();};
+
+  let capRows;
+  if (viewMode==='single') {
+    const wi=curWI();
+    const selWeekLabel=(visits().weeks[wi]||{}).label||'';
+    const target=norm(selWeekLabel);
+    capRows=allCap.filter(r=>norm(r.week)===target);
+    if(capRows.length===0){
+      noCapEl.classList.add('show');
+      const sorted=[...new Set(allCap.map(r=>r.week).filter(Boolean))].sort((a,b)=>new Date(a)-new Date(b));
+      capRows=allCap.filter(r=>r.week===sorted[sorted.length-1]||'');
+    } else { noCapEl.classList.remove('show'); }
+  } else {
+    // Range: collect all cap rows for all weeks in range
+    const [fromI,toI]=activeRange();
+    const wks=visits().weeks;
+    const rangeLabels=new Set();
+    for(let i=fromI;i<=toI;i++){if(wks[i]&&wks[i].label)rangeLabels.add(norm(wks[i].label));}
+    capRows=allCap.filter(r=>rangeLabels.has(norm(r.week)));
+    noCapEl.classList.remove('show');
+  }
+
+  // Group by clinic→therapist, then if range average the pct values
+  const byClinic={};
+  if (viewMode==='single') {
+    for(const row of capRows){
+      const k=row.clinic;
+      if(!byClinic[k])byClinic[k]={name:k,region:row.region||'Unknown',therapists:[]};
+      if(row.therapist&&row.therapist.trim())byClinic[k].therapists.push({...row});
+    }
+  } else {
+    // Aggregate multiple weeks per therapist
+    const tMap={}; // key: "clinic|therapist"
+    for(const row of capRows){
+      if(!row.therapist||!row.therapist.trim())continue;
+      const key=row.clinic+'|'+row.therapist;
+      if(!tMap[key]){tMap[key]={...row,_monPcts:[],_friPcts:[],_weeks:0};}
+      const t=tMap[key];
+      t._weeks++;
+      t.totalSlots=(t.totalSlots||0)+(row.totalSlots||0);
+      t.monScheduled=(t.monScheduled||0)+(row.monScheduled||0);
+      t.monOpen=(t.monOpen||0)+(row.monOpen||0);
+      t.monActualCap=(t.monActualCap||0)+(row.monActualCap||0);
+      t.friScheduled=(t.friScheduled||0)+(row.friScheduled||0);
+      t.friOpen=(t.friOpen||0)+(row.friOpen||0);
+      t.friActualCap=(t.friActualCap||0)+(row.friActualCap||0);
+      if(row.monPct!=null)t._monPcts.push(row.monPct);
+      if(row.friPct!=null)t._friPcts.push(row.friPct);
+    }
+    for(const t of Object.values(tMap)){
+      t.monPct=t._monPcts.length?t._monPcts.reduce((s,v)=>s+v,0)/t._monPcts.length:null;
+      t.friPct=t._friPcts.length?t._friPcts.reduce((s,v)=>s+v,0)/t._friPcts.length:null;
+      const k=t.clinic;
+      if(!byClinic[k])byClinic[k]={name:k,region:t.region||'Unknown',therapists:[]};
+      byClinic[k].therapists.push(t);
+    }
+  }
+
+  let clinics=Object.values(byClinic);
+  const regF=capRegion==='All'?null:capRegion;
+  if(regF)clinics=clinics.filter(c=>c.region===regF);
+  if(!clinics.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No clinics match this filter.</div>';return;}
+  clinics.sort((a,b)=>a.region.localeCompare(b.region)||a.name.localeCompare(b.name));
+
+  // Company total card
+  const allTherapists=clinics.flatMap(c=>c.therapists);
+  const coClinic={name:'Company total',region:'Unknown',therapists:allTherapists};
+
+  const cards=(capMode==='clinic'?clinics.map(clinicCard):[...clinics.map(therapistCard)]).join('');
+  // For clinic mode prepend company total card
+  if(capMode==='clinic'){
+    grid.innerHTML=clinicCard(coClinic,'company')+cards;
+  } else {
+    grid.innerHTML=cards;
+  }
+}
+
+function aggTherapists(ts){
+  if(!ts.length)return{};
+  const sum=key=>ts.reduce((s,t)=>s+(t[key]||0),0);
+  const wpct=key=>{
+    let wSum=0,tSum=0;
+    ts.forEach(t=>{const p=t[key],s=t.totalSlots||0;if(p!=null&&s>0){wSum+=p*s;tSum+=s;}});
+    return tSum>0?wSum/tSum:null;
+  };
+  return{
+    totalSlots:sum('totalSlots'),monScheduled:sum('monScheduled'),monOpen:sum('monOpen'),
+    monActualCap:sum('monActualCap'),monPct:wpct('monPct'),
+    friScheduled:sum('friScheduled'),friOpen:sum('friOpen'),
+    friActualCap:sum('friActualCap'),friPct:wpct('friPct'),
+  };
+}
+
+function clinicCard(c, override){
+  const a=aggTherapists(c.therapists);
+  const isCompany=override==='company';
+  // reg is always the real region for bar colors; header class separate
+  const reg=c.region||'Unknown';
+  const headCls=isCompany?'cc-head-company':('cc-head-'+reg);
+  const mp=a.monPct!=null?Math.round(a.monPct):null;
+  const fp=a.friPct!=null?Math.round(a.friPct):null;
+  const monBlocked=a.monActualCap!=null&&a.totalSlots!=null?Math.max(0,a.totalSlots-a.monActualCap):null;
+  const friBlocked=a.friActualCap!=null&&a.totalSlots!=null?Math.max(0,a.totalSlots-a.friActualCap):null;
+  return`<div class="clinic-card">
+    <div class="${headCls}">
+      <div class="cc-name">${c.name}</div>
+    </div>
+    <div class="cap-day">
+      <div class="cap-day-lbl">Monday</div>
+      <div class="bar-meta">
+        <span>${a.monScheduled!=null?fmt(a.monScheduled)+' sched · '+fmt(a.monOpen)+' open'+(monBlocked?' · '+fmt(monBlocked)+' blocked':''):'—'}</span>
+        <span class="pct-val ${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill bar-mon-${reg}" style="width:${Math.min(mp||0,100)}%"></div></div>
+    </div>
+    <div class="cap-day">
+      <div class="cap-day-lbl">Friday</div>
+      <div class="bar-meta">
+        <span>${a.friScheduled!=null?fmt(a.friScheduled)+' sched · '+fmt(a.friOpen)+' open'+(friBlocked?' · '+fmt(friBlocked)+' blocked':''):'—'}</span>
+        <span class="pct-val ${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill bar-fri-${reg}" style="width:${Math.min(fp||0,100)}%"></div></div>
+    </div>
+    <div class="cc-stats">
+      <div class="cc-stat"><span>${a.monActualCap!=null?fmt(a.monActualCap):'—'}</span>Mon cap</div>
+      <div class="cc-stat"><span>${a.friActualCap!=null?fmt(a.friActualCap):'—'}</span>Fri cap</div>
+      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
+      <div class="cc-stat"><span>${c.therapists.length||'—'}</span>Therapists</div>
+    </div>
+  </div>`;
+}
+
+function therapistCard(c){
+  const a=aggTherapists(c.therapists);
+  const reg=c.region||'Unknown';
+  const mp=a.monPct!=null?Math.round(a.monPct):null;
+  const fp=a.friPct!=null?Math.round(a.friPct):null;
+  // Filter: only show therapists with >5 scheduled visits (Mon+Fri scheduled as proxy for visits)
+  const qualified=c.therapists.filter(t=>(t.monScheduled||0)+(t.friScheduled||0)>5);
+  const show=qualified.slice(0,8), more=qualified.length-8;
+  return`<div class="clinic-card">
+    <div class="cc-head-${reg}"><div class="cc-name">${c.name}</div></div>
+    <div class="cc-stats" style="margin-bottom:10px">
+      <div class="cc-stat"><span>${qualified.length}</span>Therapists</div>
+      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
+      <div class="cc-stat"><span class="${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>Mon util.</div>
+      <div class="cc-stat"><span class="${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>Fri util.</div>
+    </div>
+    <div class="t-list">
+      ${show.map(t=>{
+        const tm=t.monPct!=null?Math.round(t.monPct):null;
+        const tf=t.friPct!=null?Math.round(t.friPct):null;
+        return`<div>
+          <div class="t-top">
+            <span class="t-name">${t.therapist}</span>
+            <span class="badge ${monBadgeCls(tm)}">M: ${tm!=null?tm+'%':'—'}</span>
+            <span class="badge ${friBadgeCls(tf)}">F: ${tf!=null?tf+'%':'—'}</span>
+          </div>
+          <div class="t-slots">
+            <span class="t-detail">Mon sched: ${t.monScheduled??'—'} · open: ${t.monOpen??'—'}</span>
+            <span class="t-detail">Fri sched: ${t.friScheduled??'—'} · open: ${t.friOpen??'—'}</span>
+          </div>
+        </div>`;
+      }).join('')}
+      ${more>0?`<div style="font-size:11px;color:var(--faint);margin-top:2px">+${more} more therapists</div>`:''}
+    </div>
+  </div>`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function buildRegionMap(){const m={};for(const r of(store.capacity||[])){if(r.clinic&&r.region)m[r.clinic.toLowerCase()]=r.region;}return m;}
+function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
+function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
+function monBadgeCls(p){return p==null?'x':p>=94?'g':p>=85?'w':'r';}
+function friBadgeCls(p){return p==null?'x':p>=88?'g':p>=80?'w':'r';}
+function pctCls(p){return monPctCls(p);}
+function badgeCls(p){return monBadgeCls(p);}
+function fmt(n){return Math.round(n).toLocaleString();}
+function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
+function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='show '+type;}
+function hideStatus(){document.getElementById('status').className='';}
+function addTH(row,text,cls){const th=document.createElement('th');th.textContent=text;if(cls)th.className=cls;row.appendChild(th);return th;}
+function addTD(row,text,cls){const td=document.createElement('td');td.textContent=text;if(cls)td.className=cls;row.appendChild(td);return td;}
+function setBtnLoading(on){
+  const btn=document.getElementById('refresh-btn');btn.disabled=on;
+  btn.innerHTML=on?'<span class="spin"></span> Loading…':
+    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8a6.5 6.5 0 1 1 1.1 3.6"/><polyline points="1.5,12 1.5,8 5.5,8"/></svg> Refresh';
+}
+</script>
+</body>
+</html>
