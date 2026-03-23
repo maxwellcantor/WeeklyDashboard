@@ -844,122 +844,176 @@ function renderLostVisits() {
   const lv = store.lostVisits || [];
   if (!lv.length) return;
 
-  // Match to the currently selected visits week by label
-  const visWI = curWI();
-  const visLabel = (visits().weeks[visWI] || {}).label || '';
-  let wi = lv.findIndex(w => w.label === visLabel);
-  if (wi < 0) {
-    // Fall back: latest week matching selected year
-    const yr = parseInt(selYear);
-    for (let i = lv.length - 1; i >= 0; i--) {
-      if (lv[i].year === yr) { wi = i; break; }
-    }
-  }
-  if (wi < 0) wi = lv.length - 1;
-
-  const week = lv[wi];
-  if (!week) return;
-
-  document.getElementById('lost-tbl-title').textContent =
-    'Lost visits — week of ' + week.label;
-
   const regMap = buildRegionMap();
   const regF = selRegion === 'All' ? null : selRegion;
-  const clinicsToShow = week.clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
-
-  // ── Summary table ──
   const thead = document.getElementById('lost-tbl-h');
-  const tbody = document.getElementById('lost-tbl-b');
+  const tbody  = document.getElementById('lost-tbl-b');
   thead.innerHTML = ''; tbody.innerHTML = '';
 
-  const hr = thead.insertRow();
-  addTH(hr, 'Clinic');
-  addTH(hr, '% lost', 'r');
-  week.days.forEach(d => addTH(hr, d.day, 'r'));
-  addTH(hr, 'Total lost', 'r');
+  if (viewMode === 'range') {
+    // ── Range mode: one column per week ──────────────────────────────────
+    // Collect all week labels in the active range
+    const [fromI, toI] = activeRange();
+    const vWeeks = visits().weeks;
+    const rangeLabels = [];
+    for (let i = fromI; i <= toI; i++) {
+      if (vWeeks[i] && vWeeks[i].label) rangeLabels.push(vWeeks[i].label);
+    }
 
-  // ── Company % lost row (top of body) ──
-  // Shows % lost from Mon AM for each day column
-  const monAMcoTop = week.days[0] ? week.days[0].companyTotal : null;
-  const coTopTr = tbody.insertRow();
-  coTopTr.className = 'co-total';
-  coTopTr.style.borderBottom = '1.5px solid var(--border-md)';
-  addTD(coTopTr, 'Company % lost');
-  // Overall % lost for the week (blank — header context only)
-  const coTopLastVal = (() => {
-    for (let d = week.days.length - 1; d >= 1; d--) {
-      if (week.days[d].companyTotal && week.days[d].companyTotal > 0) return week.days[d].companyTotal;
+    // Match lost visit weeks to range labels
+    const rangeWeeks = rangeLabels.map(lbl => lv.find(w => w.label === lbl)).filter(Boolean);
+    if (!rangeWeeks.length) {
+      document.getElementById('lost-tbl-empty').textContent = 'No lost visit data for selected range.';
+      document.getElementById('lost-tbl-empty').style.display = '';
+      document.getElementById('lost-tbl').style.display = 'none';
+      return;
     }
-    return null;
-  })();
-  const coTopOverallPct = (monAMcoTop && coTopLastVal && monAMcoTop > 0)
-    ? Math.abs((monAMcoTop - coTopLastVal) / monAMcoTop * 100) : null;
-  const coTopSumTd = addTD(coTopTr, coTopOverallPct != null ? coTopOverallPct.toFixed(1) + '%' : '—', 'r');
-  coTopSumTd.style.color = lostPctColor(coTopOverallPct); coTopSumTd.style.fontWeight = '600';
-  // Per-day % lost from Mon AM
-  week.days.forEach((d, idx) => {
-    const dayTotal = d.companyTotal;
-    let pct = null;
-    if (idx === 0) {
-      // Mon AM is the baseline — show as 0%
-      pct = 0;
-    } else if (monAMcoTop && dayTotal && monAMcoTop > 0) {
-      pct = Math.abs((monAMcoTop - dayTotal) / monAMcoTop * 100);
-    }
-    const td = addTD(coTopTr, pct != null ? pct.toFixed(1) + '%' : '—', 'r');
-    td.style.color = lostPctColor(pct === 0 ? 0 : pct);
-    td.style.fontWeight = '600';
-  });
-  addTD(coTopTr, ''); // blank total lost cell
 
-  for (const clinic of clinicsToShow) {
-    const tr = tbody.insertRow();
-    addTD(tr, clinic);
-    // Use last day with actual data for % lost calculation
-    const monAM = week.days[0] ? week.days[0].values[clinic] : null;
-    let lastVal = null;
-    for (let d = week.days.length - 1; d >= 1; d--) {
-      const v = week.days[d].values[clinic];
-      if (v != null && v > 0) { lastVal = v; break; }
+    document.getElementById('lost-tbl-title').textContent =
+      `Lost visits — ${rangeWeeks[0].label} to ${rangeWeeks[rangeWeeks.length-1].label}`;
+
+    // All clinics from first week (they're consistent across weeks)
+    const clinics = rangeWeeks[0].clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+
+    // Header: Clinic | % lost | Avg Mon AM | week1 | week2 ... | Total lost
+    const hr = thead.insertRow();
+    addTH(hr, 'Clinic');
+    addTH(hr, 'Avg % lost', 'r');
+    addTH(hr, 'Avg Mon AM', 'r');
+    rangeWeeks.forEach(w => addTH(hr, w.label, 'r'));
+    addTH(hr, 'Total lost', 'r');
+
+    // Per-clinic rows — each week cell shows Mon AM start / total lost
+    for (const clinic of clinics) {
+      const tr = tbody.insertRow(); addTD(tr, clinic);
+      let totalMonAM = 0, totalLost = 0, weekCount = 0;
+      const pcts = [];
+
+      const weekCells = rangeWeeks.map(w => {
+        const monAM = w.days[0] ? (w.days[0].values[clinic] || 0) : 0;
+        const lost  = w.totalLost[clinic] || 0;
+        const pct   = w.pctLost[clinic]  != null ? Math.abs(w.pctLost[clinic]) : null;
+        if (monAM > 0) { totalMonAM += monAM; totalLost += lost; weekCount++; if (pct != null) pcts.push(pct); }
+        return { monAM, lost, pct };
+      });
+
+      const avgPct   = pcts.length ? pcts.reduce((s,v)=>s+v,0)/pcts.length : null;
+      const avgMonAM = weekCount ? totalMonAM / weekCount : 0;
+
+      // Avg % lost
+      const pTd = addTD(tr, avgPct != null ? avgPct.toFixed(1)+'%' : '—', 'r');
+      pTd.style.color = lostPctColor(avgPct); pTd.style.fontWeight = '600';
+      // Avg Mon AM
+      addTD(tr, avgMonAM ? fmt(avgMonAM) : '—', 'r');
+      // Per-week cells: "start / -lost"
+      weekCells.forEach(({monAM, lost, pct}) => {
+        const td = addTD(tr, monAM ? fmt(monAM) : '—', 'r');
+        if (lost > 0) td.innerHTML += `<br><span style="font-size:10px;color:var(--red)">-${fmt(lost)}</span>`;
+      });
+      // Total lost
+      const lTd = addTD(tr, totalLost ? fmt(totalLost) : '—', 'r');
+      lTd.style.color = 'var(--red)'; lTd.style.fontWeight = '600';
     }
-    const computedPct = (monAM && lastVal && monAM > 0)
-      ? Math.abs((monAM - lastVal) / monAM * 100)
-      : (week.pctLost[clinic] != null ? Math.abs(week.pctLost[clinic]) : null);
-    const lost = week.totalLost[clinic] != null
-      ? week.totalLost[clinic]
-      : (monAM && lastVal ? monAM - lastVal : null);
-    // % lost column (col 2)
-    const pTd = addTD(tr, computedPct != null ? computedPct.toFixed(1) + '%' : '—', 'r');
-    pTd.style.color = lostPctColor(computedPct);
-    pTd.style.fontWeight = '600';
-    // Day columns
-    week.days.forEach(d => {
-      const v = d.values[clinic];
-      addTD(tr, v != null ? fmt(v) : '—', 'r');
+
+    // Company total row
+    const coTr = tbody.insertRow(); coTr.className = 'co-total';
+    addTD(coTr, 'Company total');
+    let coTotalMonAM=0, coTotalLost=0, coWeekCount=0;
+    const coPcts=[];
+    const coWeekCells = rangeWeeks.map(w => {
+      const monAM = w.days[0] ? (w.days[0].companyTotal||0) : 0;
+      const lost  = w.companyLostTotal || 0;
+      let lastVal = null;
+      for (let d=w.days.length-1;d>=1;d--){if(w.days[d].companyTotal>0){lastVal=w.days[d].companyTotal;break;}}
+      const pct = (monAM && lastVal && monAM>0) ? Math.abs((monAM-lastVal)/monAM*100) : null;
+      if (monAM>0){coTotalMonAM+=monAM;coTotalLost+=lost;coWeekCount++;if(pct!=null)coPcts.push(pct);}
+      return {monAM,lost,pct};
     });
-    // Total lost (last col)
-    const lTd = addTD(tr, lost != null ? fmt(lost) : '—', 'r');
-    lTd.style.color = 'var(--red)'; lTd.style.fontWeight = '600';
-  }
+    const coAvgPct=coPcts.length?coPcts.reduce((s,v)=>s+v,0)/coPcts.length:null;
+    const coP=addTD(coTr,coAvgPct!=null?coAvgPct.toFixed(1)+'%':'—','r');
+    coP.style.color=lostPctColor(coAvgPct);coP.style.fontWeight='600';
+    addTD(coTr,coWeekCount?fmt(coTotalMonAM/coWeekCount):'—','r');
+    coWeekCells.forEach(({monAM,lost})=>{
+      const td=addTD(coTr,monAM?fmt(monAM):'—','r');
+      if(lost>0)td.innerHTML+=`<br><span style="font-size:10px;color:var(--red)">-${fmt(lost)}</span>`;
+    });
+    const coL=addTD(coTr,coTotalLost?fmt(coTotalLost):'—','r');
+    coL.style.color='var(--red)';
 
-  // Company row
-  const coTr = tbody.insertRow(); coTr.className = 'co-total';
-  addTD(coTr, 'Company total');
-  // Find last day that has company total data (in case week is incomplete)
-  const monAMco = week.days[0] ? week.days[0].companyTotal : null;
-  let lastDayWithData = null;
-  for (let d = week.days.length - 1; d >= 1; d--) {
-    if (week.days[d].companyTotal && week.days[d].companyTotal > 0) {
-      lastDayWithData = week.days[d].companyTotal; break;
+  } else {
+    // ── Single week mode ─────────────────────────────────────────────────
+    const visWI = curWI();
+    const visLabel = (visits().weeks[visWI] || {}).label || '';
+    let wi = lv.findIndex(w => w.label === visLabel);
+    if (wi < 0) {
+      const yr = parseInt(selYear);
+      for (let i=lv.length-1;i>=0;i--){if(lv[i].year===yr){wi=i;break;}}
     }
+    if (wi < 0) wi = lv.length - 1;
+
+    const week = lv[wi];
+    if (!week) return;
+
+    document.getElementById('lost-tbl-title').textContent = 'Lost visits — week of ' + week.label;
+    const clinicsToShow = week.clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+
+    const hr = thead.insertRow();
+    addTH(hr, 'Clinic');
+    addTH(hr, '% lost', 'r');
+    week.days.forEach(d => addTH(hr, d.day, 'r'));
+    addTH(hr, 'Total lost', 'r');
+
+    // Company % lost row at top
+    const monAMcoTop = week.days[0] ? week.days[0].companyTotal : null;
+    const coTopTr = tbody.insertRow();
+    coTopTr.className = 'co-total';
+    coTopTr.style.borderBottom = '1.5px solid var(--border-md)';
+    addTD(coTopTr, 'Company % lost');
+    const coTopLastVal = (() => {
+      for (let d=week.days.length-1;d>=1;d--){if(week.days[d].companyTotal>0)return week.days[d].companyTotal;}
+      return null;
+    })();
+    const coTopOverallPct = (monAMcoTop&&coTopLastVal&&monAMcoTop>0)
+      ?Math.abs((monAMcoTop-coTopLastVal)/monAMcoTop*100):null;
+    const coTopSumTd=addTD(coTopTr,coTopOverallPct!=null?coTopOverallPct.toFixed(1)+'%':'—','r');
+    coTopSumTd.style.color=lostPctColor(coTopOverallPct);coTopSumTd.style.fontWeight='600';
+    week.days.forEach((d,idx)=>{
+      const dayTotal=d.companyTotal;
+      let pct=idx===0?0:(monAMcoTop&&dayTotal&&monAMcoTop>0?Math.abs((monAMcoTop-dayTotal)/monAMcoTop*100):null);
+      const td=addTD(coTopTr,pct!=null?pct.toFixed(1)+'%':'—','r');
+      td.style.color=lostPctColor(pct===0?0:pct);td.style.fontWeight='600';
+    });
+    addTD(coTopTr,'');
+
+    // Clinic rows
+    for (const clinic of clinicsToShow) {
+      const tr = tbody.insertRow(); addTD(tr, clinic);
+      const monAM = week.days[0] ? week.days[0].values[clinic] : null;
+      let lastVal=null;
+      for(let d=week.days.length-1;d>=1;d--){const v=week.days[d].values[clinic];if(v!=null&&v>0){lastVal=v;break;}}
+      const computedPct=(monAM&&lastVal&&monAM>0)?Math.abs((monAM-lastVal)/monAM*100)
+        :(week.pctLost[clinic]!=null?Math.abs(week.pctLost[clinic]):null);
+      const lost=week.totalLost[clinic]!=null?week.totalLost[clinic]:(monAM&&lastVal?monAM-lastVal:null);
+      const pTd=addTD(tr,computedPct!=null?computedPct.toFixed(1)+'%':'—','r');
+      pTd.style.color=lostPctColor(computedPct);pTd.style.fontWeight='600';
+      week.days.forEach(d=>{const v=d.values[clinic];addTD(tr,v!=null?fmt(v):'—','r');});
+      const lTd=addTD(tr,lost!=null?fmt(lost):'—','r');
+      lTd.style.color='var(--red)';lTd.style.fontWeight='600';
+    }
+
+    // Company total row at bottom
+    const coTr=tbody.insertRow();coTr.className='co-total';
+    addTD(coTr,'Company total');
+    const monAMco=week.days[0]?week.days[0].companyTotal:null;
+    let lastDayWithData=null;
+    for(let d=week.days.length-1;d>=1;d--){if(week.days[d].companyTotal&&week.days[d].companyTotal>0){lastDayWithData=week.days[d].companyTotal;break;}}
+    const coAbsPct=(monAMco&&lastDayWithData&&monAMco>0)?Math.abs((monAMco-lastDayWithData)/monAMco*100):null;
+    const coP=addTD(coTr,coAbsPct!=null?coAbsPct.toFixed(1)+'%':'—','r');
+    coP.style.color=lostPctColor(coAbsPct);coP.style.fontWeight='600';
+    week.days.forEach(d=>addTD(coTr,d.companyTotal!=null?fmt(d.companyTotal):'—','r'));
+    const coL=addTD(coTr,week.companyLostTotal!=null?fmt(week.companyLostTotal):'—','r');
+    coL.style.color='var(--red)';
   }
-  const coAbsPct = (monAMco && lastDayWithData && monAMco > 0)
-    ? Math.abs((monAMco - lastDayWithData) / monAMco * 100) : null;
-  const coP = addTD(coTr, coAbsPct != null ? coAbsPct.toFixed(1) + '%' : '—', 'r');
-  coP.style.color = lostPctColor(coAbsPct); coP.style.fontWeight = '600';
-  week.days.forEach(d => addTD(coTr, d.companyTotal != null ? fmt(d.companyTotal) : '—', 'r'));
-  const coL = addTD(coTr, week.companyLostTotal != null ? fmt(week.companyLostTotal) : '—', 'r');
-  coL.style.color = 'var(--red)';
 
   document.getElementById('lost-tbl-empty').style.display = 'none';
   document.getElementById('lost-tbl').style.display = 'table';
