@@ -574,7 +574,7 @@ function renderClinicTable(tblId,hId,bId,emptyId,data,otherData,fromI,toI){
     isRange=false;
     const wi=fromI;
     const wiInAll=allWks.findIndex(x=>x.i===wi);
-    const s=Math.max(0,wiInAll-2), e=Math.min(allWks.length-1,wiInAll+2);
+    const s=Math.max(0,wiInAll-1), e=Math.min(allWks.length-1,wiInAll+1);
     showWeeks=allWks.slice(s,e+1);
 
     addTH(hr,'Clinic');
@@ -877,6 +877,40 @@ function renderLostVisits() {
   addTH(hr, '% lost', 'r');
   week.days.forEach(d => addTH(hr, d.day, 'r'));
   addTH(hr, 'Total lost', 'r');
+
+  // ── Company % lost row (top of body) ──
+  // Shows % lost from Mon AM for each day column
+  const monAMcoTop = week.days[0] ? week.days[0].companyTotal : null;
+  const coTopTr = tbody.insertRow();
+  coTopTr.className = 'co-total';
+  coTopTr.style.borderBottom = '1.5px solid var(--border-md)';
+  addTD(coTopTr, 'Company % lost');
+  // Overall % lost for the week (blank — header context only)
+  const coTopLastVal = (() => {
+    for (let d = week.days.length - 1; d >= 1; d--) {
+      if (week.days[d].companyTotal && week.days[d].companyTotal > 0) return week.days[d].companyTotal;
+    }
+    return null;
+  })();
+  const coTopOverallPct = (monAMcoTop && coTopLastVal && monAMcoTop > 0)
+    ? Math.abs((monAMcoTop - coTopLastVal) / monAMcoTop * 100) : null;
+  const coTopSumTd = addTD(coTopTr, coTopOverallPct != null ? coTopOverallPct.toFixed(1) + '%' : '—', 'r');
+  coTopSumTd.style.color = lostPctColor(coTopOverallPct); coTopSumTd.style.fontWeight = '600';
+  // Per-day % lost from Mon AM
+  week.days.forEach((d, idx) => {
+    const dayTotal = d.companyTotal;
+    let pct = null;
+    if (idx === 0) {
+      // Mon AM is the baseline — show as 0%
+      pct = 0;
+    } else if (monAMcoTop && dayTotal && monAMcoTop > 0) {
+      pct = Math.abs((monAMcoTop - dayTotal) / monAMcoTop * 100);
+    }
+    const td = addTD(coTopTr, pct != null ? pct.toFixed(1) + '%' : '—', 'r');
+    td.style.color = lostPctColor(pct === 0 ? 0 : pct);
+    td.style.fontWeight = '600';
+  });
+  addTD(coTopTr, ''); // blank total lost cell
 
   for (const clinic of clinicsToShow) {
     const tr = tbody.insertRow();
