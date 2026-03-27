@@ -601,7 +601,7 @@ function renderClinicTable(tblId,hId,bId,emptyId,data,otherData,fromI,toI){
   for(const clinic of data.clinics){
     if(regF&&regMap[clinic.toLowerCase()]!==regF)continue;
     clinicCount++;
-    const tr=tbody.insertRow(); addTD(tr,clinic);
+    const tr=tbody.insertRow(); addTD(tr,displayName(clinic));
 
     if (!isRange) {
       const avg=clinicAvg[clinic]||0;
@@ -757,7 +757,7 @@ function clinicCard(c, override){
   const friBlocked=a.friActualCap!=null&&a.totalSlots!=null?Math.max(0,a.totalSlots-a.friActualCap):null;
   return`<div class="clinic-card">
     <div class="${headCls}">
-      <div class="cc-name">${c.name}</div>
+      <div class="cc-name">${displayName(c.name)}</div>
     </div>
     <div class="cap-day">
       <div class="cap-day-lbl">Monday</div>
@@ -793,7 +793,7 @@ function therapistCard(c){
   const qualified=c.therapists.filter(t=>(t.monScheduled||0)+(t.friScheduled||0)>5);
   const show=qualified.slice(0,8), more=qualified.length-8;
   return`<div class="clinic-card">
-    <div class="cc-head-${reg}"><div class="cc-name">${c.name}</div></div>
+    <div class="cc-head-${reg}"><div class="cc-name">${displayName(c.name)}</div></div>
     <div class="cc-stats" style="margin-bottom:10px">
       <div class="cc-stat"><span>${qualified.length}</span>Therapists</div>
       <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
@@ -822,7 +822,24 @@ function therapistCard(c){
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-function buildRegionMap(){const m={};for(const r of(store.capacity||[])){if(r.clinic&&r.region)m[r.clinic.toLowerCase()]=r.region;}return m;}
+function buildRegionMap(){
+  const m={};
+  for(const r of(store.capacity||[])){if(r.clinic&&r.region)m[r.clinic.toLowerCase()]=r.region;}
+  // Ensure FHV variants all resolve to Green
+  m['fhv']='Green'; m['fox hill']='Green'; m['fox hill village']='Green'; m['westwood']='Green';
+  return m;
+}
+
+// Normalize clinic names for display — maps internal sheet names to display names
+const CLINIC_DISPLAY = {
+  'FHV': 'Fox Hill',
+  'Fox Hill Village': 'Fox Hill',
+  'Fox Hill': 'Fox Hill',
+  'Westwood': 'Fox Hill',
+};
+function displayName(name) {
+  return CLINIC_DISPLAY[name] || name;
+}
 function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
 function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
 function monBadgeCls(p){return p==null?'x':p>=94?'g':p>=85?'w':'r';}
@@ -885,7 +902,7 @@ function renderLostVisits() {
 
     // Per-clinic rows — each week cell shows Mon AM start / total lost
     for (const clinic of clinics) {
-      const tr = tbody.insertRow(); addTD(tr, clinic);
+      const tr = tbody.insertRow(); addTD(tr, displayName(clinic));
       let totalMonAM = 0, totalLost = 0, weekCount = 0;
       const pcts = [];
 
@@ -987,7 +1004,7 @@ function renderLostVisits() {
 
     // Clinic rows
     for (const clinic of clinicsToShow) {
-      const tr = tbody.insertRow(); addTD(tr, clinic);
+      const tr = tbody.insertRow(); addTD(tr, displayName(clinic));
       const monAM = week.days[0] ? week.days[0].values[clinic] : null;
       let lastVal=null;
       for(let d=week.days.length-1;d>=1;d--){const v=week.days[d].values[clinic];if(v!=null&&v>0){lastVal=v;break;}}
