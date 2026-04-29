@@ -827,6 +827,8 @@ function buildRegionMap(){
   for(const r of(store.capacity||[])){if(r.clinic&&r.region)m[r.clinic.toLowerCase()]=r.region;}
   // Ensure FHV variants all resolve to Green
   m['fhv']='Green'; m['fox hill']='Green'; m['fox hill village']='Green'; m['westwood']='Green';
+  // New clinics
+  m['middletown']='Orange';
   return m;
 }
 
