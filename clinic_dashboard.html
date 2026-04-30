@@ -207,7 +207,6 @@ tr.co-total:hover td{background:var(--surface2)}
     <div class="kpi"   ><div class="lbl">Total referrals</div><div class="val" id="kr">—</div><div class="sub" id="krs">—</div></div>
     <div class="kpi"   ><div class="lbl">YTD visits</div><div class="val" id="ky">—</div><div class="sub" id="kys">—</div></div>
     <div class="kpi"   ><div class="lbl">YTD referrals</div><div class="val" id="kyr">—</div><div class="sub" id="kyrs">—</div></div>
-    <div class="kpi"   id="kpi-lost"><div class="lbl">Lost visits</div><div class="val" id="kl">—</div><div class="sub">Visits minus referrals</div></div>
   </div>
 
   <!-- ── Charts (single-week only) ── -->
@@ -450,33 +449,66 @@ function updateRangeHint(v, fromI, toI) {
 }
 
 // ── KPIs ──────────────────────────────────────────────────────────────────
+// Compute total for a single week, respecting region filter
+function weekTotal(week, data, regF, regMap) {
+  if (!regF) return week.total || 0;
+  return (data.clinics || [])
+    .filter(c => regMap[c.toLowerCase()] === regF)
+    .reduce((s, c) => s + (week.values[c] || 0), 0);
+}
+
+// Get the most current visit count from lost visits for a given week label
+// (last day that has data — so mid-week this is e.g. Wednesday, end of week it's Friday PM)
+function currentVisitCount(label, regF, regMap) {
+  const lv = store.lostVisits || [];
+  const week = lv.find(w => w.label === label);
+  if (!week || !week.days || !week.days.length) return null;
+  // Find the last day with actual data
+  for (let d = week.days.length - 1; d >= 0; d--) {
+    const day = week.days[d];
+    if (!regF) {
+      if (day.companyTotal && day.companyTotal > 0) return day.companyTotal;
+    } else {
+      const val = (week.clinics || [])
+        .filter(c => regMap[c.toLowerCase()] === regF)
+        .reduce((s, c) => s + (day.values[c] || 0), 0);
+      if (val > 0) return val;
+    }
+  }
+  return null;
+}
+
 function updateKPIs(v, r, fromI, toI) {
-  // Sum visits/referrals across the range
-  const sumRange = (data, fi, ti) =>
-    data.weeks.slice(fi, ti+1).reduce((s,w)=>s+(w.total||0), 0);
+  const regMap = buildRegionMap();
+  const regF   = selRegion === 'All' ? null : selRegion;
 
-  const vn = sumRange(v, fromI, toI);
-  const rn = sumRange(r, fromI, toI);
+  // For single week, use the most current count from lost visits (last day with data)
+  let vn;
+  if (viewMode === 'single') {
+    const selLabel = (v.weeks[fromI] || {}).label || '';
+    const current = currentVisitCount(selLabel, regF, regMap);
+    vn = current != null ? current : weekTotal(v.weeks[fromI] || {}, v, regF, regMap);
+  } else {
+    vn = v.weeks.slice(fromI, toI+1).reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
+  }
 
-  // YTD through the end of the range
-  const ytdV = v.weeks.slice(0, toI+1).reduce((s,w)=>s+(w.total||0), 0);
-  const ytdR = r.weeks.slice(0, toI+1).reduce((s,w)=>s+(w.total||0), 0);
+  const rn   = r.weeks.slice(fromI, toI+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
+  const ytdV = v.weeks.slice(0, toI+1).reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
+  const ytdR = r.weeks.slice(0, toI+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
 
-  // Weekly avg for the selected year
-  const yr=parseInt(selYear);
-  const allV=v.weeks.filter(w=>w.year===yr&&w.total>0);
-  const avgV=allV.length?Math.round(allV.reduce((s,w)=>s+(w.total||0),0)/allV.length):0;
-  const allR=r.weeks.filter(w=>w.year===yr&&(w.total||0)>0);
-  const avgR=allR.length?Math.round(allR.reduce((s,w)=>s+(w.total||0),0)/allR.length):0;
+  const yr   = parseInt(selYear);
+  const yrVW = v.weeks.filter(w=>w.year===yr&&weekTotal(w,v,regF,regMap)>0);
+  const yrRW = r.weeks.filter(w=>w.year===yr&&weekTotal(w,r,regF,regMap)>0);
+  const avgV = yrVW.length ? yrVW.reduce((s,w)=>s+weekTotal(w,v,regF,regMap),0)/yrVW.length : 0;
+  const avgR = yrRW.length ? yrRW.reduce((s,w)=>s+weekTotal(w,r,regF,regMap),0)/yrRW.length : 0;
 
   set('kv', fmt(vn)); set('kr', fmt(rn));
-  set('kl', fmt(Math.max(0,vn-rn)));
-  set('ky', fmt(ytdV)); set('kys','YTD through '+(v.weeks[toI]||{}).label||'');
-  set('kyr',fmt(ytdR)); set('kyrs','YTD through '+(v.weeks[toI]||{}).label||'');
+  set('ky', fmt(ytdV)); set('kys','YTD through '+((v.weeks[toI]||{}).label||''));
+  set('kyr',fmt(ytdR)); set('kyrs','YTD through '+((v.weeks[toI]||{}).label||''));
 
   if (viewMode==='single') {
-    setDeltaAvg('kvs', vn, avgV);
-    setDeltaAvg('krs', rn, avgR);
+    setDeltaAvg('kvs', vn, Math.round(avgV)||0);
+    setDeltaAvg('krs', rn, Math.round(avgR)||0);
   } else {
     const n=toI-fromI+1;
     const el=document.getElementById('kvs');
@@ -493,7 +525,7 @@ function setDeltaAvg(id,val,avg){
   el.className='sub '+(delta>=0?'pos':'neg');
 }
 
-// ── Charts (single week only) ─────────────────────────────────────────────
+// ── Charts — ±2 weeks back, +1 week forward, region-aware ────────────────
 function renderCharts(v, r, wi) {
   if (!v.weeks.length) return;
   const isDark=matchMedia('(prefers-color-scheme:dark)').matches;
@@ -502,37 +534,67 @@ function renderCharts(v, r, wi) {
   const lblC=isDark?'#c8c6c0':'#2a2a28';
   const avgLineColor=isDark?'rgba(168,92,8,.7)':'rgba(168,92,8,.8)';
   const yr=parseInt(selYear);
+  const regMap=buildRegionMap();
+  const regF=selRegion==='All'?null:selRegion;
 
-  const allV=[],allR=[];
-  v.weeks.forEach((w,i)=>{if(w.year===yr){allV.push({w,i});allR.push({w:r.weeks[i]||{total:0},i});}});
-  const vWD=allV.filter(x=>x.w.total>0), rWD=allR.filter(x=>x.w.total>0);
-  const avgV=vWD.length?vWD.reduce((s,x)=>s+(x.w.total||0),0)/vWD.length:0;
-  const avgR=rWD.length?rWD.reduce((s,x)=>s+(x.w.total||0),0)/rWD.length:0;
+  // Build index of all weeks in selected year
+  const yrWks=[];
+  v.weeks.forEach((w,i)=>{ if(w.year===yr) yrWks.push({w,i}); });
 
-  const wiInAll=allV.findIndex(x=>x.i===wi);
-  const start=Math.max(0,wiInAll-2), end=Math.min(allV.length-1,wiInAll+2);
-  const windowV=allV.slice(start,end+1);
+  // Find selected week position in year array
+  const selInYr=yrWks.findIndex(x=>x.i===wi);
+
+  // Window: 2 back, selected, 1 forward
+  const winStart=Math.max(0, selInYr-2);
+  const winEnd  =Math.min(yrWks.length-1, selInYr+1);
+  const window  =yrWks.slice(winStart, winEnd+1);
+
   const labels=[],vVals=[],rVals=[];
-  windowV.forEach(x=>{labels.push(x.w.label);vVals.push(x.w.total||0);rVals.push((r.weeks[x.i]||{}).total||0);});
+  window.forEach(({w,i})=>{
+    labels.push(w.label);
+    vVals.push(weekTotal(w,v,regF,regMap));
+    rVals.push(weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap));
+  });
 
-  const selInW=windowV.findIndex(x=>x.i===wi);
+  const selInW=window.findIndex(x=>x.i===wi);
   const ptR=labels.map((_,i)=>i===selInW?6:3);
   const ptBg=c=>labels.map((_,i)=>i===selInW?c:c+'70');
+
+  // Avg across all data weeks in the year (not just window)
+  const allVVals=yrWks.map(({w,i})=>weekTotal(w,v,regF,regMap)).filter(v=>v>0);
+  const allRVals=yrWks.map(({w,i})=>weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap)).filter(v=>v>0);
+  const avgV=allVVals.length?allVVals.reduce((s,v)=>s+v,0)/allVVals.length:0;
+  const avgR=allRVals.length?allRVals.reduce((s,v)=>s+v,0)/allRVals.length:0;
 
   const mkDs=(vals,color)=>({
     data:vals,borderColor:color,backgroundColor:color+'18',borderWidth:2,fill:true,tension:0.3,
     pointRadius:ptR,pointBackgroundColor:ptBg(color),pointBorderColor:ptBg(color),pointHoverRadius:6,
-    datalabels:{color:lblC,font:{size:10,weight:'600'},align:'top',anchor:'end',display:true,formatter:v=>v>0?Math.round(v).toLocaleString():''}
+    datalabels:{
+      color:lblC,font:{size:10,weight:'600'},align:'top',anchor:'end',
+      display:true,
+      formatter:v=>v>0?Math.round(v).toLocaleString():''
+    }
   });
   const avgDs=(avg,label)=>({
-    label,data:labels.map(()=>Math.round(avg)),borderColor:avgLineColor,borderWidth:1.5,borderDash:[4,4],
+    label,data:labels.map(()=>Math.round(avg)),
+    borderColor:avgLineColor,borderWidth:1.5,borderDash:[4,4],
     pointRadius:0,fill:false,tension:0,
-    datalabels:{display:ctx=>ctx.dataIndex===labels.length-1,color:avgLineColor,font:{size:9,weight:'600'},align:'right',anchor:'end',formatter:v=>'avg '+Math.round(v).toLocaleString()}
+    datalabels:{
+      display:ctx=>ctx.dataIndex===labels.length-1,
+      color:avgLineColor,font:{size:9,weight:'600'},
+      align:'right',anchor:'end',
+      formatter:v=>'avg '+Math.round(v).toLocaleString()
+    }
   });
+
   const opts={
-    responsive:true,maintainAspectRatio:false,layout:{padding:{top:28,right:60}},
+    responsive:true,maintainAspectRatio:false,
+    layout:{padding:{top:24,right:60}},
     plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false},datalabels:{}},
-    scales:{x:{grid:{color:grid},ticks:{color:tick,font:{size:11}}},y:{grid:{color:grid},ticks:{color:tick,font:{size:10}}}}
+    scales:{
+      x:{grid:{color:grid},ticks:{color:tick,font:{size:11}}},
+      y:{grid:{color:grid},ticks:{color:tick,font:{size:10}}}
+    }
   };
   mkChart('vc',labels,[mkDs(vVals,'#1756a0'),avgDs(avgV,'Avg')],opts,'v');
   mkChart('rc',labels,[mkDs(rVals,'#26703a'),avgDs(avgR,'Avg')],opts,'r');
