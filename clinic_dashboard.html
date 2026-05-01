@@ -552,7 +552,10 @@ function renderCharts(v, r, wi) {
   const labels=[],vVals=[],rVals=[];
   window.forEach(({w,i})=>{
     labels.push(w.label);
-    vVals.push(weekTotal(w,v,regF,regMap));
+    // Visits: prefer lost visits current count, fall back to tracking summary
+    const lostCurrent = currentVisitCount(w.label, regF, regMap);
+    const trackingVal  = weekTotal(w, v, regF, regMap);
+    vVals.push(lostCurrent != null ? lostCurrent : trackingVal);
     rVals.push(weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap));
   });
 
@@ -560,8 +563,11 @@ function renderCharts(v, r, wi) {
   const ptR=labels.map((_,i)=>i===selInW?6:3);
   const ptBg=c=>labels.map((_,i)=>i===selInW?c:c+'70');
 
-  // Avg across all data weeks in the year (not just window)
-  const allVVals=yrWks.map(({w,i})=>weekTotal(w,v,regF,regMap)).filter(v=>v>0);
+  // Avg across all data weeks in the year — same source as chart values
+  const allVVals=yrWks.map(({w,i})=>{
+    const lc=currentVisitCount(w.label,regF,regMap);
+    return lc!=null?lc:weekTotal(w,v,regF,regMap);
+  }).filter(v=>v>0);
   const allRVals=yrWks.map(({w,i})=>weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap)).filter(v=>v>0);
   const avgV=allVVals.length?allVVals.reduce((s,v)=>s+v,0)/allVVals.length:0;
   const avgR=allRVals.length?allRVals.reduce((s,v)=>s+v,0)/allRVals.length:0;
@@ -741,7 +747,9 @@ function renderCapacity(){
   if (viewMode==='single') {
     for(const row of capRows){
       const k=row.clinic;
-      if(!byClinic[k])byClinic[k]={name:k,region:row.region||'Unknown',therapists:[]};
+      const regionMap=buildRegionMap();
+      const resolvedRegion=row.region&&row.region!=='Unknown'?row.region:(regionMap[k.toLowerCase()]||'Unknown');
+      if(!byClinic[k])byClinic[k]={name:k,region:resolvedRegion,therapists:[]};
       if(row.therapist&&row.therapist.trim())byClinic[k].therapists.push({...row});
     }
   } else {
@@ -773,6 +781,13 @@ function renderCapacity(){
   }
 
   let clinics=Object.values(byClinic);
+  // Apply region overrides for clinics not yet in capacity sheet
+  const regMap2=buildRegionMap();
+  clinics.forEach(c=>{
+    if(!c.region||c.region==='Unknown'){
+      c.region=regMap2[c.name.toLowerCase()]||'Unknown';
+    }
+  });
   const regF=capRegion==='All'?null:capRegion;
   if(regF)clinics=clinics.filter(c=>c.region===regF);
   if(!clinics.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No clinics match this filter.</div>';return;}
@@ -838,10 +853,10 @@ function clinicCard(c, override){
       <div class="bar-bg"><div class="bar-fill bar-fri-${reg}" style="width:${Math.min(fp||0,100)}%"></div></div>
     </div>
     <div class="cc-stats">
-      <div class="cc-stat"><span>${a.monActualCap!=null?fmt(a.monActualCap):'—'}</span>Mon cap</div>
-      <div class="cc-stat"><span>${a.friActualCap!=null?fmt(a.friActualCap):'—'}</span>Fri cap</div>
       <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
-      <div class="cc-stat"><span>${c.therapists.length||'—'}</span>Therapists</div>
+      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon slots</div>
+      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri slots</div>
+      <div class="cc-stat"><span>${(monBlocked!=null&&friBlocked!=null)?fmt((monBlocked||0)+(friBlocked||0)):'—'}</span>Total blocked</div>
     </div>
   </div>`;
 }
@@ -857,10 +872,10 @@ function therapistCard(c){
   return`<div class="clinic-card">
     <div class="cc-head-${reg}"><div class="cc-name">${displayName(c.name)}</div></div>
     <div class="cc-stats" style="margin-bottom:10px">
-      <div class="cc-stat"><span>${qualified.length}</span>Therapists</div>
-      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
-      <div class="cc-stat"><span class="${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>Mon util.</div>
-      <div class="cc-stat"><span class="${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>Fri util.</div>
+      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon sched</div>
+      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri sched</div>
+      <div class="cc-stat"><span class="${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>Mon % cap</div>
+      <div class="cc-stat"><span class="${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>Fri % cap</div>
     </div>
     <div class="t-list">
       ${show.map(t=>{
