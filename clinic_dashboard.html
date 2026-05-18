@@ -852,11 +852,16 @@ function clinicCard(c, override){
       </div>
       <div class="bar-bg"><div class="bar-fill bar-fri-${reg}" style="width:${Math.min(fp||0,100)}%"></div></div>
     </div>
-    <div class="cc-stats">
-      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total slots</div>
-      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon slots</div>
-      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri slots</div>
-      <div class="cc-stat"><span>${(monBlocked!=null&&friBlocked!=null)?fmt((monBlocked||0)+(friBlocked||0)):'—'}</span>Total blocked</div>
+    <div class="cc-stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:6px;padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total Capacity</div>
+      <div class="cc-stat"><span>${a.monActualCap!=null?fmt(a.monActualCap):'—'}</span>Act Cap</div>
+      <div class="cc-stat"><span>${(monBlocked!=null&&friBlocked!=null)?fmt((monBlocked||0)+(friBlocked||0)):'—'}</span>Tot Blocked</div>
+    </div>
+    <div class="cc-stats" style="grid-template-columns:repeat(4,1fr);border-top:none">
+      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon Sched</div>
+      <div class="cc-stat"><span>${a.monOpen!=null?fmt(a.monOpen):'—'}</span>Mon Open Slots</div>
+      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri Sched</div>
+      <div class="cc-stat"><span>${a.friOpen!=null?fmt(a.friOpen):'—'}</span>Fri Open Slots</div>
     </div>
   </div>`;
 }
