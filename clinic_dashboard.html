@@ -313,22 +313,116 @@ const _ro = new ResizeObserver(reportHeight);
 _ro.observe(document.body);
 setInterval(reportHeight, 800);
 
+// ── Three-tier loading config ─────────────────────────────────────────────
+// STATIC_JSON_URL: paste the URL printed by buildStaticCache() here after running it
+const STATIC_JSON_URL = 'https://drive.google.com/uc?export=download&id=1bpDSv6pNJs3XITuFoWB6gLPfbwaG2ggq';
+
+const LS_STATIC  = 'cpt_static_v1';   // localStorage key for static cache
+const LS_RECENT  = 'cpt_recent_v1';   // localStorage key for recent live data
+const LS_STATIC_TS = 'cpt_static_ts'; // when we last refreshed from Drive
+
+// How long to trust each cache layer
+const STATIC_TTL = 24 * 60 * 60 * 1000;  // static file: 24h (rebuilt nightly)
+const RECENT_TTL =       60 * 1000;       // recent live: 1 min
+
+function lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch(e) { return null; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
+}
+
+// Merge recent live data on top of static historical data
+function mergeData(base, recent) {
+  if (!base)   return recent;
+  if (!recent) return base;
+  const merged = { ...base };
+  ['visits2026','referrals2026','visits2025','referrals2025'].forEach(key => {
+    if (!recent[key] || !base[key]) return;
+    const recentLabels = new Set(recent[key].weeks.map(w => w.label));
+    const oldWeeks = base[key].weeks.filter(w => !recentLabels.has(w.label));
+    merged[key] = { ...base[key], weeks: [...oldWeeks, ...recent[key].weeks] };
+  });
+  // Capacity always comes from recent (live)
+  if (recent.capacity) merged.capacity = recent.capacity;
+  // Lost visits: merge by label
+  if (recent.lostVisits) {
+    const recentLVLabels = new Set(recent.lostVisits.map(w => w.label));
+    const oldLV = (base.lostVisits || []).filter(w => !recentLVLabels.has(w.label));
+    merged.lostVisits = [...oldLV, ...recent.lostVisits]
+      .sort((a,b) => new Date(a.label) - new Date(b.label));
+  }
+  merged.timestamp = recent.timestamp || base.builtAt;
+  return merged;
+}
+
 // ── Load ──────────────────────────────────────────────────────────────────
 async function loadAll() {
-  setBtnLoading(true); setStatus('Fetching from Google Sheets…','loading');
+  setBtnLoading(true);
+
+  // ── Phase 0: render from localStorage immediately if available ────────
+  const cachedStatic = lsGet(LS_STATIC);
+  const cachedRecent = lsGet(LS_RECENT);
+  if (cachedStatic || cachedRecent) {
+    store = mergeData(cachedStatic, cachedRecent);
+    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+    setStatus('Loading latest data…', 'loading');
+  } else {
+    setStatus('Fetching data…', 'loading');
+  }
+
   try {
-    const res  = await fetch(SCRIPT_URL + '?cb=' + Date.now());
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Script error');
-    store = data;
-    buildWeekDropdowns();
-    buildLostWeekDropdown();
-    renderAll();
+    // ── Phase 1: fetch recent live data (last 3 weeks) — fast ──────────
+    const recentRes  = await fetch(SCRIPT_URL + '?mode=recent&cb=' + Date.now());
+    const recentData = await recentRes.json();
+    if (!recentData.ok) throw new Error(recentData.error || 'Script error');
+    lsSet(LS_RECENT, recentData);
+
+    // ── Phase 2: get static historical data ────────────────────────────
+    // Use Drive file if configured, else localStorage, else skip
+    let staticData = null;
+    const staticTs = lsGet(LS_STATIC_TS) || 0;
+    const staticStale = (Date.now() - staticTs) > STATIC_TTL;
+
+    if (STATIC_JSON_URL && staticStale) {
+      // Fetch fresh static file from Drive (happens once per 24h)
+      try {
+        setStatus('Loading history…', 'loading');
+        const staticRes = await fetch(STATIC_JSON_URL + '&t=' + Date.now());
+        staticData = await staticRes.json();
+        if (staticData.ok) {
+          lsSet(LS_STATIC, staticData);
+          lsSet(LS_STATIC_TS, Date.now());
+        }
+      } catch(e) {
+        staticData = cachedStatic; // fall back to old localStorage copy
+      }
+    } else if (STATIC_JSON_URL && !staticStale) {
+      staticData = cachedStatic; // still fresh, use what we have
+    } else if (!STATIC_JSON_URL) {
+      // No static URL configured — fall back to full live load
+      try {
+        setStatus('Loading full history…', 'loading');
+        const fullRes  = await fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now());
+        const fullData = await fullRes.json();
+        if (fullData.ok) { staticData = fullData; lsSet(LS_STATIC, fullData); lsSet(LS_STATIC_TS, Date.now()); }
+      } catch(e) { staticData = cachedStatic; }
+    }
+
+    // ── Phase 3: merge and render final state ─────────────────────────
+    store = mergeData(staticData, recentData);
+    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+
     const now = new Date();
     document.getElementById('updated-lbl').textContent =
       'Updated ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    setStatus('Data loaded.','ok'); setTimeout(hideStatus,3000);
-  } catch(e) { setStatus('Error: '+e.message,'err'); console.error(e); }
+    setStatus('Data loaded.', 'ok');
+    setTimeout(hideStatus, 3000);
+
+  } catch(e) {
+    setStatus('Error: ' + e.message, 'err');
+    console.error(e);
+  }
   setBtnLoading(false);
 }
 
