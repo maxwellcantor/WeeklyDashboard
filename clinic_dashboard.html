@@ -333,15 +333,23 @@ function lsSet(key, val) {
 }
 
 // Merge recent live data on top of static historical data
+// CRITICAL: weeks must stay sorted chronologically — every downstream lookup
+// (dropdown order, curWI index, YTD slicing) assumes index order == date order.
 function mergeData(base, recent) {
   if (!base)   return recent;
   if (!recent) return base;
   const merged = { ...base };
   ['visits2026','referrals2026','visits2025','referrals2025'].forEach(key => {
-    if (!recent[key] || !base[key]) return;
+    if (!recent[key] && !base[key]) return;
+    if (!recent[key]) { merged[key] = base[key]; return; }
+    if (!base[key])   { merged[key] = recent[key]; return; }
     const recentLabels = new Set(recent[key].weeks.map(w => w.label));
     const oldWeeks = base[key].weeks.filter(w => !recentLabels.has(w.label));
-    merged[key] = { ...base[key], weeks: [...oldWeeks, ...recent[key].weeks] };
+    const allWeeks = [...oldWeeks, ...recent[key].weeks]
+      .sort((a, b) => new Date(a.label) - new Date(b.label));
+    // Union the clinic lists too — a new clinic may only exist in recent data
+    const clinicSet = new Set([...(base[key].clinics||[]), ...(recent[key].clinics||[])]);
+    merged[key] = { clinics: [...clinicSet], weeks: allWeeks };
   });
   // Capacity always comes from recent (live)
   if (recent.capacity) merged.capacity = recent.capacity;
@@ -384,29 +392,48 @@ async function loadAll() {
     const staticTs = lsGet(LS_STATIC_TS) || 0;
     const staticStale = (Date.now() - staticTs) > STATIC_TTL;
 
-    if (STATIC_JSON_URL && staticStale) {
-      // Fetch fresh static file from Drive (happens once per 24h)
-      try {
-        setStatus('Loading history…', 'loading');
-        const staticRes = await fetch(STATIC_JSON_URL + '&t=' + Date.now());
-        staticData = await staticRes.json();
-        if (staticData.ok) {
-          lsSet(LS_STATIC, staticData);
-          lsSet(LS_STATIC_TS, Date.now());
+    if (STATIC_JSON_URL && !staticStale && cachedStatic) {
+      // Cached copy is still fresh — use it
+      staticData = cachedStatic;
+    } else {
+      // Need history: try the static file first, fall back to a full live load.
+      if (STATIC_JSON_URL) {
+        try {
+          setStatus('Loading history…', 'loading');
+          const staticRes = await fetch(STATIC_JSON_URL + '&t=' + Date.now());
+          if (staticRes.ok) {
+            // Drive can return an HTML interstitial instead of the file, which
+            // would make .json() throw — check the body looks like JSON first.
+            const text = await staticRes.text();
+            if (text.trim().startsWith('{')) {
+              const parsed = JSON.parse(text);
+              if (parsed.ok) {
+                staticData = parsed;
+                lsSet(LS_STATIC, parsed);
+                lsSet(LS_STATIC_TS, Date.now());
+              }
+            }
+          }
+        } catch(e) {
+          console.warn('Static file fetch failed:', e);
         }
-      } catch(e) {
-        staticData = cachedStatic; // fall back to old localStorage copy
       }
-    } else if (STATIC_JSON_URL && !staticStale) {
-      staticData = cachedStatic; // still fresh, use what we have
-    } else if (!STATIC_JSON_URL) {
-      // No static URL configured — fall back to full live load
-      try {
-        setStatus('Loading full history…', 'loading');
-        const fullRes  = await fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now());
-        const fullData = await fullRes.json();
-        if (fullData.ok) { staticData = fullData; lsSet(LS_STATIC, fullData); lsSet(LS_STATIC_TS, Date.now()); }
-      } catch(e) { staticData = cachedStatic; }
+      // If the static file didn't give us usable history, load it live.
+      if (!staticData) {
+        try {
+          setStatus('Loading full history…', 'loading');
+          const fullRes  = await fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now());
+          const fullData = await fullRes.json();
+          if (fullData.ok) {
+            staticData = fullData;
+            lsSet(LS_STATIC, fullData);
+            lsSet(LS_STATIC_TS, Date.now());
+          }
+        } catch(e) {
+          console.warn('Full load failed:', e);
+          staticData = cachedStatic; // last resort: stale cache
+        }
+      }
     }
 
     // ── Phase 3: merge and render final state ─────────────────────────
@@ -519,15 +546,31 @@ function switchCap(mode,btn) {
   renderCapacity();
 }
 
+// Map an index from one dataset to the equivalent index in another, by week label.
+// The visits and referrals arrays can differ in length, so a raw index from one
+// must never be used to look into the other.
+function mapIdx(fromData, toData, idx) {
+  const label = (fromData.weeks[idx] || {}).label;
+  if (!label) return -1;
+  return toData.weeks.findIndex(w => w.label === label);
+}
+
 // ── Master render ─────────────────────────────────────────────────────────
 function renderAll() {
   const v=visits(), r=referrals();
   if (!v.weeks.length) return;
   const [fromI, toI] = activeRange();
-  updateKPIs(v, r, fromI, toI);
+
+  // Translate the visits-based range into referrals-array indices
+  let rFrom = mapIdx(v, r, fromI);
+  let rTo   = mapIdx(v, r, toI);
+  if (rFrom < 0) rFrom = Math.min(fromI, r.weeks.length - 1);
+  if (rTo   < 0) rTo   = Math.min(toI,   r.weeks.length - 1);
+
+  updateKPIs(v, r, fromI, toI, rFrom, rTo);
   if (viewMode==='single') renderCharts(v, r, fromI);
   renderClinicTable('vtbl','vtbl-h','vtbl-b','vtbl-empty', v, r, fromI, toI);
-  renderClinicTable('rtbl','rtbl-h','rtbl-b','rtbl-empty', r, v, fromI, toI);
+  renderClinicTable('rtbl','rtbl-h','rtbl-b','rtbl-empty', r, v, rFrom, rTo);
   renderCapacity();
   renderLostVisits();
   updateRangeHint(v, fromI, toI);
@@ -572,9 +615,14 @@ function currentVisitCount(label, regF, regMap) {
   return null;
 }
 
-function updateKPIs(v, r, fromI, toI) {
+function updateKPIs(v, r, fromI, toI, rFrom, rTo) {
   const regMap = buildRegionMap();
   const regF   = selRegion === 'All' ? null : selRegion;
+  const yr     = parseInt(selYear);
+
+  // Referrals indices default to the visits ones if not supplied
+  if (rFrom == null) rFrom = fromI;
+  if (rTo   == null) rTo   = toI;
 
   // For single week, use the most current count from lost visits (last day with data)
   let vn;
@@ -586,11 +634,19 @@ function updateKPIs(v, r, fromI, toI) {
     vn = v.weeks.slice(fromI, toI+1).reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
   }
 
-  const rn   = r.weeks.slice(fromI, toI+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
-  const ytdV = v.weeks.slice(0, toI+1).reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
-  const ytdR = r.weeks.slice(0, toI+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
+  const rn = r.weeks.slice(rFrom, rTo+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
 
-  const yr   = parseInt(selYear);
+  // YTD must only sum weeks in the SELECTED YEAR up to the selected week.
+  // The weeks array holds multiple years, so slicing from index 0 would
+  // incorrectly include the prior year.
+  const cutoffDate = new Date((v.weeks[toI] || {}).label || 0);
+  const ytdV = v.weeks
+    .filter(w => w.year === yr && new Date(w.label) <= cutoffDate)
+    .reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
+  const ytdR = r.weeks
+    .filter(w => w.year === yr && new Date(w.label) <= cutoffDate)
+    .reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
+
   const yrVW = v.weeks.filter(w=>w.year===yr&&weekTotal(w,v,regF,regMap)>0);
   const yrRW = r.weeks.filter(w=>w.year===yr&&weekTotal(w,r,regF,regMap)>0);
   const avgV = yrVW.length ? yrVW.reduce((s,w)=>s+weekTotal(w,v,regF,regMap),0)/yrVW.length : 0;
