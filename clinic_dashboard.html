@@ -315,7 +315,9 @@ setInterval(reportHeight, 800);
 
 // ── Three-tier loading config ─────────────────────────────────────────────
 // STATIC_JSON_URL: paste the URL printed by buildStaticCache() here after running it
-const STATIC_JSON_URL = 'https://drive.google.com/uc?export=download&id=1bpDSv6pNJs3XITuFoWB6gLPfbwaG2ggq';
+// GitHub Pages serves the nightly cache from a fast CDN (~300ms) — far quicker
+// and more reliable than the old Google Drive download endpoint.
+const STATIC_JSON_URL = 'https://maxwellcantor.github.io/WeeklyDashboard/static.json';
 
 const LS_STATIC  = 'cpt_static_v1';   // localStorage key for static cache
 const LS_RECENT  = 'cpt_recent_v1';   // localStorage key for recent live data
