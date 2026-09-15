@@ -367,92 +367,93 @@ function mergeData(base, recent) {
 }
 
 // ── Load ──────────────────────────────────────────────────────────────────
+// Strategy: render from the fast GitHub static file (or localStorage) FIRST so
+// the page is usable in well under a second. Then fetch the slow Apps Script
+// "recent" data in the BACKGROUND and patch the current 3 weeks in when it
+// arrives. The slow call never blocks the initial render.
 async function loadAll() {
   setBtnLoading(true);
 
-  // ── Phase 0: render from localStorage immediately if available ────────
   const cachedStatic = lsGet(LS_STATIC);
   const cachedRecent = lsGet(LS_RECENT);
+
+  // ── Phase 0: instant render from localStorage if we have it ──
   if (cachedStatic || cachedRecent) {
     store = mergeData(cachedStatic, cachedRecent);
     buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
-    setStatus('Loading latest data…', 'loading');
+    setStatus('Refreshing…', 'loading');
   } else {
-    setStatus('Fetching data…', 'loading');
+    setStatus('Loading…', 'loading');
   }
 
+  // ── Phase 1: fetch the static file from GitHub (fast CDN) and render ──
+  // This is the historical data — everything except the last few weeks.
+  let staticData = cachedStatic;
   try {
-    // ── Phase 1: fetch recent live data (last 3 weeks) — fast ──────────
-    const recentRes  = await fetch(SCRIPT_URL + '?mode=recent&cb=' + Date.now());
-    const recentData = await recentRes.json();
-    if (!recentData.ok) throw new Error(recentData.error || 'Script error');
-    lsSet(LS_RECENT, recentData);
-
-    // ── Phase 2: get static historical data ────────────────────────────
-    // Use Drive file if configured, else localStorage, else skip
-    let staticData = null;
-    const staticTs = lsGet(LS_STATIC_TS) || 0;
-    const staticStale = (Date.now() - staticTs) > STATIC_TTL;
-
-    if (STATIC_JSON_URL && !staticStale && cachedStatic) {
-      // Cached copy is still fresh — use it
-      staticData = cachedStatic;
-    } else {
-      // Need history: try the static file first, fall back to a full live load.
-      if (STATIC_JSON_URL) {
-        try {
-          setStatus('Loading history…', 'loading');
-          const staticRes = await fetch(STATIC_JSON_URL + '&t=' + Date.now());
-          if (staticRes.ok) {
-            // Drive can return an HTML interstitial instead of the file, which
-            // would make .json() throw — check the body looks like JSON first.
-            const text = await staticRes.text();
-            if (text.trim().startsWith('{')) {
-              const parsed = JSON.parse(text);
-              if (parsed.ok) {
-                staticData = parsed;
-                lsSet(LS_STATIC, parsed);
-                lsSet(LS_STATIC_TS, Date.now());
-              }
-            }
-          }
-        } catch(e) {
-          console.warn('Static file fetch failed:', e);
-        }
-      }
-      // If the static file didn't give us usable history, load it live.
-      if (!staticData) {
-        try {
-          setStatus('Loading full history…', 'loading');
-          const fullRes  = await fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now());
-          const fullData = await fullRes.json();
-          if (fullData.ok) {
-            staticData = fullData;
-            lsSet(LS_STATIC, fullData);
+    const staticStale = (Date.now() - (lsGet(LS_STATIC_TS) || 0)) > STATIC_TTL;
+    if (STATIC_JSON_URL && (staticStale || !cachedStatic)) {
+      // Cache-buster must use a query string. GitHub Pages URLs have no '?',
+      // so build it safely rather than appending '&'.
+      const sep = STATIC_JSON_URL.indexOf('?') === -1 ? '?' : '&';
+      const staticRes = await fetch(STATIC_JSON_URL + sep + 't=' + Date.now());
+      if (staticRes.ok) {
+        const text = await staticRes.text();
+        if (text.trim().startsWith('{')) {
+          const parsed = JSON.parse(text);
+          if (parsed.ok) {
+            staticData = parsed;
+            lsSet(LS_STATIC, parsed);
             lsSet(LS_STATIC_TS, Date.now());
           }
-        } catch(e) {
-          console.warn('Full load failed:', e);
-          staticData = cachedStatic; // last resort: stale cache
         }
       }
     }
-
-    // ── Phase 3: merge and render final state ─────────────────────────
-    store = mergeData(staticData, recentData);
-    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
-
-    const now = new Date();
-    document.getElementById('updated-lbl').textContent =
-      'Updated ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    setStatus('Data loaded.', 'ok');
-    setTimeout(hideStatus, 3000);
-
   } catch(e) {
-    setStatus('Error: ' + e.message, 'err');
-    console.error(e);
+    console.warn('Static file fetch failed, using cache:', e);
+    staticData = cachedStatic;
   }
-  setBtnLoading(false);
+
+  // Render with static + whatever recent we had cached — page is now usable.
+  if (staticData) {
+    store = mergeData(staticData, cachedRecent);
+    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+    stampUpdated();
+    setStatus('Loaded — updating current week…', 'loading');
+  }
+
+  // ── Phase 2: fetch recent live data in the BACKGROUND (does not block) ──
+  // This is the slow Apps Script call. We already showed the page; now we
+  // patch in the freshest 3 weeks when it returns.
+  fetch(SCRIPT_URL + '?mode=recent&cb=' + Date.now())
+    .then(r => r.json())
+    .then(recentData => {
+      if (!recentData.ok) throw new Error(recentData.error || 'Script error');
+      lsSet(LS_RECENT, recentData);
+      store = mergeData(staticData || cachedStatic, recentData);
+      buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+      stampUpdated();
+      setStatus('Data loaded.', 'ok');
+      setTimeout(hideStatus, 2500);
+    })
+    .catch(e => {
+      console.warn('Recent live fetch failed:', e);
+      // Not fatal — the static file already rendered. Only surface an error
+      // if we have nothing at all to show.
+      if (!staticData && !cachedStatic && !cachedRecent) {
+        setStatus('Could not load data.', 'err');
+      } else {
+        setStatus('Showing cached data.', 'ok');
+        setTimeout(hideStatus, 2500);
+      }
+    })
+    .finally(() => setBtnLoading(false));
+}
+
+function stampUpdated() {
+  const now = new Date();
+  document.getElementById('updated-lbl').textContent =
+    'Updated ' + now.toLocaleDateString() + ' ' +
+    now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 }
 
 // ── Dropdowns ─────────────────────────────────────────────────────────────
