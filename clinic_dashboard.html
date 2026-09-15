@@ -324,7 +324,7 @@ const LS_RECENT  = 'cpt_recent_v1';   // localStorage key for recent live data
 const LS_STATIC_TS = 'cpt_static_ts'; // when we last refreshed from Drive
 
 // How long to trust each cache layer
-const STATIC_TTL = 24 * 60 * 60 * 1000;  // static file: 24h (rebuilt nightly)
+const STATIC_TTL = 15 * 60 * 1000;       // re-fetch the fast GitHub file every 15 min
 const RECENT_TTL =       60 * 1000;       // recent live: 1 min
 
 function lsGet(key) {
@@ -421,9 +421,18 @@ async function loadAll() {
     setStatus('Loaded — updating current week…', 'loading');
   }
 
-  // ── Phase 2: fetch recent live data in the BACKGROUND (does not block) ──
-  // This is the slow Apps Script call. We already showed the page; now we
-  // patch in the freshest 3 weeks when it returns.
+  // ── Phase 2: optional background top-up from Apps Script ──
+  // The static file is now a COMPLETE nightly snapshot, so this call is only a
+  // safety net for same-day sheet edits (rare — data updates once nightly). If
+  // the static file loaded fine, we skip the slow call entirely on refresh.
+  const needLive = !staticData; // only go live if the fast file failed
+  if (!needLive) {
+    setStatus('Data loaded.', 'ok');
+    setTimeout(hideStatus, 2000);
+    setBtnLoading(false);
+    return;
+  }
+
   fetch(SCRIPT_URL + '?mode=recent&cb=' + Date.now())
     .then(r => r.json())
     .then(recentData => {
@@ -437,8 +446,6 @@ async function loadAll() {
     })
     .catch(e => {
       console.warn('Recent live fetch failed:', e);
-      // Not fatal — the static file already rendered. Only surface an error
-      // if we have nothing at all to show.
       if (!staticData && !cachedStatic && !cachedRecent) {
         setStatus('Could not load data.', 'err');
       } else {
