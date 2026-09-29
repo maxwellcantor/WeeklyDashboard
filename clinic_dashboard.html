@@ -367,91 +367,85 @@ function mergeData(base, recent) {
 }
 
 // ── Load ──────────────────────────────────────────────────────────────────
-// Strategy: render from the fast GitHub static file (or localStorage) FIRST so
-// the page is usable in well under a second. Then fetch the slow Apps Script
-// "recent" data in the BACKGROUND and patch the current 3 weeks in when it
-// arrives. The slow call never blocks the initial render.
+// The GitHub static file is a COMPLETE nightly snapshot (all weeks + capacity),
+// so it is the single source of truth. We render it directly — no merging of a
+// separate "recent" cache on top, which previously let a stale localStorage copy
+// silently override good file data. Fallbacks, in order: the last-good file we
+// cached in localStorage (network blip), then a live Apps Script call (file
+// genuinely unreachable).
 async function loadAll() {
   setBtnLoading(true);
 
-  const cachedStatic = lsGet(LS_STATIC);
-  const cachedRecent = lsGet(LS_RECENT);
+  // One-time cleanup: the old three-tier logic cached a separate "recent" copy
+  // that could override the complete file. It's no longer used — purge it so a
+  // stale copy can't linger.
+  try { localStorage.removeItem(LS_RECENT); } catch(e) {}
 
-  // ── Phase 0: instant render from localStorage if we have it ──
-  if (cachedStatic || cachedRecent) {
-    store = mergeData(cachedStatic, cachedRecent);
+  const cachedStatic = lsGet(LS_STATIC);
+
+  // ── Phase 0: instant paint from the last-good cached file, if any ──
+  if (cachedStatic) {
+    store = cachedStatic;
     buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
     setStatus('Refreshing…', 'loading');
   } else {
     setStatus('Loading…', 'loading');
   }
 
-  // ── Phase 1: fetch the static file from GitHub (fast CDN) and render ──
-  // This is the historical data — everything except the last few weeks.
-  let staticData = cachedStatic;
+  // ── Phase 1: fetch the complete static file from GitHub (fast CDN) ──
+  let staticData = null;
   try {
-    const staticStale = (Date.now() - (lsGet(LS_STATIC_TS) || 0)) > STATIC_TTL;
-    if (STATIC_JSON_URL && (staticStale || !cachedStatic)) {
-      // Cache-buster must use a query string. GitHub Pages URLs have no '?',
-      // so build it safely rather than appending '&'.
-      const sep = STATIC_JSON_URL.indexOf('?') === -1 ? '?' : '&';
-      const staticRes = await fetch(STATIC_JSON_URL + sep + 't=' + Date.now());
-      if (staticRes.ok) {
-        const text = await staticRes.text();
-        if (text.trim().startsWith('{')) {
-          const parsed = JSON.parse(text);
-          if (parsed.ok) {
-            staticData = parsed;
-            lsSet(LS_STATIC, parsed);
-            lsSet(LS_STATIC_TS, Date.now());
-          }
+    const sep = STATIC_JSON_URL.indexOf('?') === -1 ? '?' : '&';
+    const res = await fetch(STATIC_JSON_URL + sep + 't=' + Date.now());
+    if (res.ok) {
+      const text = await res.text();
+      if (text.trim().startsWith('{')) {
+        const parsed = JSON.parse(text);
+        if (parsed.ok) {
+          staticData = parsed;
+          lsSet(LS_STATIC, parsed);
+          lsSet(LS_STATIC_TS, Date.now());
         }
       }
     }
   } catch(e) {
-    console.warn('Static file fetch failed, using cache:', e);
-    staticData = cachedStatic;
+    console.warn('Static file fetch failed:', e);
   }
 
-  // Render with static + whatever recent we had cached — page is now usable.
   if (staticData) {
-    store = mergeData(staticData, cachedRecent);
+    store = staticData;
     buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
     stampUpdated();
-    setStatus('Loaded — updating current week…', 'loading');
-  }
-
-  // ── Phase 2: optional background top-up from Apps Script ──
-  // The static file is now a COMPLETE nightly snapshot, so this call is only a
-  // safety net for same-day sheet edits (rare — data updates once nightly). If
-  // the static file loaded fine, we skip the slow call entirely on refresh.
-  const needLive = !staticData; // only go live if the fast file failed
-  if (!needLive) {
     setStatus('Data loaded.', 'ok');
     setTimeout(hideStatus, 2000);
     setBtnLoading(false);
     return;
   }
 
-  fetch(SCRIPT_URL + '?mode=recent&cb=' + Date.now())
+  // ── Phase 2: file unreachable AND nothing cached → live Apps Script call ──
+  if (cachedStatic) {
+    // We already painted the cached file; a failed refresh is non-fatal.
+    setStatus('Showing last saved data.', 'ok');
+    setTimeout(hideStatus, 2500);
+    setBtnLoading(false);
+    return;
+  }
+
+  fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now())
     .then(r => r.json())
-    .then(recentData => {
-      if (!recentData.ok) throw new Error(recentData.error || 'Script error');
-      lsSet(LS_RECENT, recentData);
-      store = mergeData(staticData || cachedStatic, recentData);
+    .then(fullData => {
+      if (!fullData.ok) throw new Error(fullData.error || 'Script error');
+      store = fullData;
+      lsSet(LS_STATIC, fullData);
+      lsSet(LS_STATIC_TS, Date.now());
       buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
       stampUpdated();
       setStatus('Data loaded.', 'ok');
       setTimeout(hideStatus, 2500);
     })
     .catch(e => {
-      console.warn('Recent live fetch failed:', e);
-      if (!staticData && !cachedStatic && !cachedRecent) {
-        setStatus('Could not load data.', 'err');
-      } else {
-        setStatus('Showing cached data.', 'ok');
-        setTimeout(hideStatus, 2500);
-      }
+      console.warn('Live fallback failed:', e);
+      setStatus('Could not load data.', 'err');
     })
     .finally(() => setBtnLoading(false));
 }
