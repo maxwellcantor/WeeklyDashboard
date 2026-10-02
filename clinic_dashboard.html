@@ -926,6 +926,17 @@ function renderCapacity(){
       if(row.friPct!=null)t._friPcts.push(row.friPct);
     }
     for(const t of Object.values(tMap)){
+      // Convert the summed counts to PER-WEEK AVERAGES so the capacity card
+      // reads like a typical week over the range, not a cumulative total.
+      const n=t._weeks||1;
+      t.totalSlots   = t.totalSlots   / n;
+      t.monScheduled = t.monScheduled / n;
+      t.monOpen      = t.monOpen      / n;
+      t.monActualCap = t.monActualCap / n;
+      t.friScheduled = t.friScheduled / n;
+      t.friOpen      = t.friOpen      / n;
+      t.friActualCap = t.friActualCap / n;
+      // Percentages: average of the therapist's weekly % across weeks present.
       t.monPct=t._monPcts.length?t._monPcts.reduce((s,v)=>s+v,0)/t._monPcts.length:null;
       t.friPct=t._friPcts.length?t._friPcts.reduce((s,v)=>s+v,0)/t._friPcts.length:null;
       const k=t.clinic;
