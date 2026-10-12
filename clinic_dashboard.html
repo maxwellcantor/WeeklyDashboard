@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Connections PT — Operations Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+:root{
+  --bg:#f2f1ee;--surface:#fff;--surface2:#f7f6f3;
+  --border:rgba(0,0,0,0.08);--border-md:rgba(0,0,0,0.14);
+  --text:#181816;--muted:#6a6962;--faint:#a09e98;
+  --accent:#1756a0;--accent-bg:#e8f0fb;
+  --green:#26703a;--green-bg:#e4f2e8;
+  --amber:#a85c08;--amber-bg:#fdf0e0;
+  --red:#b02020;--red-bg:#fce8e8;
+  --r:10px;--rsm:6px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#141412;--surface:#1e1e1c;--surface2:#252523;
+  --border:rgba(255,255,255,0.07);--border-md:rgba(255,255,255,0.14);
+  --text:#e4e3de;--muted:#9e9c96;--faint:#606058;
+  --accent:#5b9be0;--accent-bg:#18283e;
+  --green:#45a858;--green-bg:#162218;
+  --amber:#d08830;--amber-bg:#261a08;
+  --red:#d84444;--red-bg:#220e0e;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh}
+.toolbar{background:var(--surface);border-bottom:0.5px solid var(--border-md);padding:0 20px;height:44px;display:flex;align-items:center;justify-content:flex-end;gap:10px;position:sticky;top:0;z-index:200}
+.updated{font-size:11px;color:var(--faint)}
+#refresh-btn{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:var(--rsm);font-size:12px;font-weight:500;cursor:pointer;transition:opacity .15s}
+#refresh-btn:hover{opacity:.85}
+#refresh-btn:disabled{opacity:.45;cursor:not-allowed}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#status{display:none;align-items:center;padding:7px 24px;font-size:12px;font-weight:500}
+#status.show{display:flex}
+#status.loading{background:var(--accent-bg);color:var(--accent)}
+#status.ok{background:var(--green-bg);color:var(--green)}
+#status.err{background:var(--red-bg);color:var(--red)}
+main{padding:16px 20px 48px;max-width:1440px;margin:0 auto}
+.sl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:10px}
+
+/* Controls */
+.controls{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.cg{display:flex;align-items:center;gap:6px}
+.cl{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap}
+.ctrl-divider{width:1px;height:20px;background:var(--border-md);margin:0 4px}
+select{padding:6px 28px 6px 10px;border:0.5px solid var(--border-md);border-radius:var(--rsm);background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.mode-pill{display:flex;gap:2px;background:var(--surface2);border:0.5px solid var(--border);border-radius:var(--rsm);padding:3px}
+.mpbtn{padding:4px 11px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;color:var(--muted);border:none;background:none;transition:all .12s;white-space:nowrap}
+.mpbtn.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.range-hint{font-size:11px;color:var(--accent);font-weight:500;padding:4px 8px;background:var(--accent-bg);border-radius:var(--rsm)}
+
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:22px}
+.kpi{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.kpi .lbl{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:5px}
+.kpi .val{font-size:26px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.5px}
+.kpi .sub{font-size:11px;color:var(--faint);margin-top:4px}
+.kpi.hi{border-color:var(--accent);background:var(--accent-bg)}.kpi.hi .val{color:var(--accent)}
+.sub.pos{color:var(--green)!important}.sub.neg{color:var(--red)!important}
+
+/* Charts */
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+@media(max-width:860px){.charts-row{grid-template-columns:1fr}}
+.chart-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:18px 20px}
+.chart-card h3{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:14px}
+.chart-wrap{position:relative;height:220px}
+
+/* Tables */
+.tbl-section{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:22px}
+.tbl-head{padding:14px 18px;border-bottom:0.5px solid var(--border)}
+.tbl-head h3{font-size:13px;font-weight:600}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:7px 14px;background:var(--surface2);color:var(--muted);font-weight:600;text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;border-bottom:0.5px solid var(--border);white-space:nowrap}
+td{padding:8px 14px;border-bottom:0.5px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.r{text-align:right;font-variant-numeric:tabular-nums}
+.dpos{color:var(--green)}.dneg{color:var(--red)}
+.empty{padding:36px;text-align:center;color:var(--faint);font-size:13px}
+/* Company total row */
+tr.co-total td{background:var(--surface2);font-weight:700;border-top:1.5px solid var(--border-md)}
+tr.co-total:hover td{background:var(--surface2)}
+
+/* Capacity controls row */
+.cap-controls{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.cap-tabs{display:flex;gap:2px;background:var(--surface2);border:0.5px solid var(--border);border-radius:var(--rsm);padding:3px}
+.cap-tab{padding:5px 14px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;color:var(--muted);border:none;background:none;transition:all .12s}
+.cap-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* Capacity cards */
+.cap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:28px}
+.clinic-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:14px 16px;transition:box-shadow .12s}
+.clinic-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.cc-name{font-size:13px;font-weight:600}
+/* Colored headers */
+.cc-head-Blue  {background:#1756a0;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Orange{background:#c06010;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Green {background:#26703a;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Red   {background:#b02020;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Purple{background:#6030a8;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Unknown{background:var(--surface2);border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-company{background:#3a3836;border-radius:var(--r) var(--r) 0 0;margin:-14px -16px 12px;padding:10px 16px;}
+.cc-head-Blue .cc-name,.cc-head-Orange .cc-name,.cc-head-Green .cc-name,
+.cc-head-Red .cc-name,.cc-head-Purple .cc-name,.cc-head-company .cc-name{color:#fff;}
+.cc-head-Unknown .cc-name{color:var(--text);}
+/* Region bars */
+.bar-mon-Blue  {background:#1756a0}.bar-mon-Orange{background:#c06010}
+.bar-mon-Green {background:#26703a}.bar-mon-Red   {background:#b02020}
+.bar-mon-Purple{background:#6030a8}.bar-mon-Unknown{background:var(--faint)}
+.bar-fri-Blue  {background:rgba(23,86,160,.55)}.bar-fri-Orange{background:rgba(192,96,16,.55)}
+.bar-fri-Green {background:rgba(38,112,58,.55)}.bar-fri-Red   {background:rgba(176,32,32,.55)}
+.bar-fri-Purple{background:rgba(96,48,168,.55)}.bar-fri-Unknown{background:rgba(160,158,152,.55)}
+/* Capacity day/bar */
+.cap-day{margin-bottom:10px}
+.cap-day-lbl{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+.bar-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px}
+.pct-val{font-weight:700}
+.pct-good{color:var(--green)}.pct-warn{color:var(--amber)}.pct-over{color:var(--red)}
+.bar-bg{background:var(--surface2);border-radius:3px;height:6px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .45s ease}
+.cc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border)}
+.cc-stat{font-size:10px;color:var(--muted);text-align:center}
+.cc-stat span{font-weight:700;color:var(--text);display:block;font-size:12px}
+/* Therapist rows */
+.t-list{margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);display:flex;flex-direction:column;gap:7px}
+.t-top{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.t-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;white-space:nowrap}
+.badge.g{background:var(--green-bg);color:var(--green)}
+.badge.w{background:var(--amber-bg);color:var(--amber)}
+.badge.r{background:var(--red-bg);color:var(--red)}
+.badge.x{background:var(--surface2);color:var(--faint)}
+.t-detail{font-size:10px;color:var(--faint)}
+.t-slots{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;margin-top:2px}
+/* Notices */
+.no-cap{background:var(--amber-bg);border:0.5px solid var(--amber);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--amber);margin-bottom:14px;display:none}
+.no-cap.show{display:block}
+/* Multi-week summary card */
+.range-summary{background:var(--accent-bg);border:0.5px solid var(--accent);border-radius:var(--r);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--accent);font-weight:500}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="updated" id="updated-lbl">Not loaded</span>
+  <button id="refresh-btn" onclick="loadAll()">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8a6.5 6.5 0 1 1 1.1 3.6"/><polyline points="1.5,12 1.5,8 5.5,8"/></svg>
+    Refresh data
+  </button>
+</div>
+<div id="status"></div>
+<main>
+
+  <!-- ── Controls ── -->
+  <div class="controls">
+    <div class="cg"><span class="cl">Year</span>
+      <select id="year-sel" onchange="onYearChange()">
+        <option value="2026">2026</option>
+        <option value="2025">2025</option>
+      </select>
+    </div>
+    <div class="ctrl-divider"></div>
+    <!-- View mode toggle -->
+    <div class="cg"><span class="cl">View</span>
+      <div class="mode-pill">
+        <button class="mpbtn active" id="mode-single" onclick="setViewMode('single',this)">Single week</button>
+        <button class="mpbtn" id="mode-range"  onclick="setViewMode('range',this)">Date range</button>
+      </div>
+    </div>
+    <!-- Single week controls -->
+    <div id="ctrl-single" class="cg"><span class="cl">Week (Mon)</span>
+      <select id="week-sel" onchange="onWeekChange()"><option value="-1">Latest week</option></select>
+    </div>
+    <!-- Range controls -->
+    <div id="ctrl-range" style="display:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="cg"><span class="cl">From</span>
+        <select id="range-from" onchange="onRangeChange()"><option value="-1">—</option></select>
+      </div>
+      <div class="cg"><span class="cl">To</span>
+        <select id="range-to" onchange="onRangeChange()"><option value="-1">—</option></select>
+      </div>
+      <div id="range-hint" class="range-hint" style="display:none"></div>
+    </div>
+    <div class="ctrl-divider"></div>
+    <div class="cg"><span class="cl">Region</span>
+      <select id="region-sel" onchange="onRegionChange()">
+        <option value="All">All regions</option>
+        <option value="Blue">Blue</option>
+        <option value="Orange">Orange</option>
+        <option value="Green">Green</option>
+        <option value="Red">Red</option>
+        <option value="Purple">Purple</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── KPIs ── -->
+  <div class="sl" id="snapshot-label">Weekly snapshot</div>
+  <div class="kpi-grid">
+    <div class="kpi hi"><div class="lbl">Total visits</div><div class="val" id="kv">—</div><div class="sub" id="kvs">—</div></div>
+    <div class="kpi"   ><div class="lbl">Total referrals</div><div class="val" id="kr">—</div><div class="sub" id="krs">—</div></div>
+    <div class="kpi"   ><div class="lbl">YTD visits</div><div class="val" id="ky">—</div><div class="sub" id="kys">—</div></div>
+    <div class="kpi"   ><div class="lbl">YTD referrals</div><div class="val" id="kyr">—</div><div class="sub" id="kyrs">—</div></div>
+  </div>
+
+  <!-- ── Charts (single-week only) ── -->
+  <div id="charts-section">
+    <div class="charts-row">
+      <div class="chart-card"><h3 id="vc-title">Weekly visits — 2026</h3><div class="chart-wrap"><canvas id="vc"></canvas></div></div>
+      <div class="chart-card"><h3 id="rc-title">Weekly referrals — 2026</h3><div class="chart-wrap"><canvas id="rc"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- ── Visits table ── -->
+  <div class="tbl-section">
+    <div class="tbl-head"><h3 id="vtbl-title">Visits by clinic</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="vtbl-empty">Loading…</div>
+      <table id="vtbl" style="display:none"><thead id="vtbl-h"></thead><tbody id="vtbl-b"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Referrals table ── -->
+  <div class="tbl-section">
+    <div class="tbl-head"><h3 id="rtbl-title">Referrals by clinic</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="rtbl-empty">Loading…</div>
+      <table id="rtbl" style="display:none"><thead id="rtbl-h"></thead><tbody id="rtbl-b"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Lost Visits ── -->
+  <div class="sl" style="margin-bottom:8px">Lost visits</div>
+  <div class="tbl-section" style="margin-bottom:22px">
+    <div class="tbl-head"><h3 id="lost-tbl-title">Lost visits summary</h3></div>
+    <div class="tbl-wrap">
+      <div class="empty" id="lost-tbl-empty">Loading…</div>
+      <table id="lost-tbl" style="display:none"><thead id="lost-tbl-h"></thead><tbody id="lost-tbl-b"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Capacity ── -->
+  <div class="sl" style="margin-bottom:8px">Capacity</div>
+  <div id="no-cap" class="no-cap">No capacity data for this week — showing most recent available week instead.</div>
+  <div class="cap-controls">
+    <div class="cap-tabs">
+      <button class="cap-tab active" onclick="switchCap('clinic',this)">Clinic capacity</button>
+      <button class="cap-tab"        onclick="switchCap('therapist',this)">Therapist capacity</button>
+    </div>
+    <div class="cg"><span class="cl">Filter region</span>
+      <select id="cap-region-sel" onchange="onCapRegionChange()">
+        <option value="All">All regions</option>
+        <option value="Blue">Blue</option>
+        <option value="Orange">Orange</option>
+        <option value="Green">Green</option>
+        <option value="Red">Red</option>
+        <option value="Purple">Purple</option>
+      </select>
+    </div>
+  </div>
+  <div class="cap-grid" id="cap-grid">
+    <div class="empty" style="grid-column:1/-1">Loading…</div>
+  </div>
+
+</main>
+<script>
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzKO6amg9iKfjkuynSBEXD6roYyL1Gaye9Vd18yXWLwrOoYjZgPSkSPTIScJ3cFXCjY/exec';
+Chart.register(ChartDataLabels);
+
+let store       = {};
+let selYear     = '2026';
+let selWeekIdx  = -1;
+let selRegion   = 'All';
+let capRegion   = 'All';
+let capMode     = 'clinic';
+let viewMode    = 'single'; // 'single' | 'range'
+let rangeFrom   = -1;       // index into visits().weeks
+let rangeTo     = -1;
+let vChart = null, rChart = null;
+
+const visits    = () => store['visits'    + selYear] || {clinics:[],weeks:[]};
+const referrals = () => store['referrals' + selYear] || {clinics:[],weeks:[]};
+const curWI = () => {
+  const w=visits().weeks; if(!w.length) return -1;
+  if (selWeekIdx >= 0) return Math.min(selWeekIdx, w.length-1);
+  return w.length-1; // fallback
+};
+
+// Returns the range of week indices currently active
+const activeRange = () => {
+  if (viewMode==='single') { const wi=curWI(); return [wi,wi]; }
+  const wks=visits().weeks;
+  const f = rangeFrom===-1 ? 0 : Math.min(rangeFrom, wks.length-1);
+  const t = rangeTo  ===-1 ? wks.length-1 : Math.min(rangeTo, wks.length-1);
+  return [Math.min(f,t), Math.max(f,t)];
+};
+
+window.addEventListener('load', loadAll);
+
+// Auto-report height to parent iframe so WordPress page resizes correctly
+function reportHeight() {
+  const h = document.body.scrollHeight;
+  window.parent.postMessage({ type: 'dashboardHeight', height: h }, '*');
+}
+// Report after every render and on resize
+const _ro = new ResizeObserver(reportHeight);
+_ro.observe(document.body);
+setInterval(reportHeight, 800);
+
+// ── Three-tier loading config ─────────────────────────────────────────────
+// STATIC_JSON_URL: paste the URL printed by buildStaticCache() here after running it
+// GitHub Pages serves the nightly cache from a fast CDN (~300ms) — far quicker
+// and more reliable than the old Google Drive download endpoint.
+const STATIC_JSON_URL = 'https://maxwellcantor.github.io/WeeklyDashboard/static.json';
+
+const LS_STATIC  = 'cpt_static_v1';   // localStorage key for static cache
+const LS_RECENT  = 'cpt_recent_v1';   // localStorage key for recent live data
+const LS_STATIC_TS = 'cpt_static_ts'; // when we last refreshed from Drive
+
+// How long to trust each cache layer
+const STATIC_TTL = 15 * 60 * 1000;       // re-fetch the fast GitHub file every 15 min
+const RECENT_TTL =       60 * 1000;       // recent live: 1 min
+
+function lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch(e) { return null; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
+}
+
+// Merge recent live data on top of static historical data
+// CRITICAL: weeks must stay sorted chronologically — every downstream lookup
+// (dropdown order, curWI index, YTD slicing) assumes index order == date order.
+function mergeData(base, recent) {
+  if (!base)   return recent;
+  if (!recent) return base;
+  const merged = { ...base };
+  ['visits2026','referrals2026','visits2025','referrals2025'].forEach(key => {
+    if (!recent[key] && !base[key]) return;
+    if (!recent[key]) { merged[key] = base[key]; return; }
+    if (!base[key])   { merged[key] = recent[key]; return; }
+    const recentLabels = new Set(recent[key].weeks.map(w => w.label));
+    const oldWeeks = base[key].weeks.filter(w => !recentLabels.has(w.label));
+    const allWeeks = [...oldWeeks, ...recent[key].weeks]
+      .sort((a, b) => new Date(a.label) - new Date(b.label));
+    // Union the clinic lists too — a new clinic may only exist in recent data
+    const clinicSet = new Set([...(base[key].clinics||[]), ...(recent[key].clinics||[])]);
+    merged[key] = { clinics: [...clinicSet], weeks: allWeeks };
+  });
+  // Capacity always comes from recent (live)
+  if (recent.capacity) merged.capacity = recent.capacity;
+  // Lost visits: merge by label
+  if (recent.lostVisits) {
+    const recentLVLabels = new Set(recent.lostVisits.map(w => w.label));
+    const oldLV = (base.lostVisits || []).filter(w => !recentLVLabels.has(w.label));
+    merged.lostVisits = [...oldLV, ...recent.lostVisits]
+      .sort((a,b) => new Date(a.label) - new Date(b.label));
+  }
+  merged.timestamp = recent.timestamp || base.builtAt;
+  return merged;
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────
+// The GitHub static file is a COMPLETE nightly snapshot (all weeks + capacity),
+// so it is the single source of truth. We render it directly — no merging of a
+// separate "recent" cache on top, which previously let a stale localStorage copy
+// silently override good file data. Fallbacks, in order: the last-good file we
+// cached in localStorage (network blip), then a live Apps Script call (file
+// genuinely unreachable).
+async function loadAll() {
+  setBtnLoading(true);
+
+  // One-time cleanup: the old three-tier logic cached a separate "recent" copy
+  // that could override the complete file. It's no longer used — purge it so a
+  // stale copy can't linger.
+  try { localStorage.removeItem(LS_RECENT); } catch(e) {}
+
+  const cachedStatic = lsGet(LS_STATIC);
+
+  // ── Phase 0: instant paint from the last-good cached file, if any ──
+  if (cachedStatic) {
+    store = cachedStatic;
+    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+    setStatus('Refreshing…', 'loading');
+  } else {
+    setStatus('Loading…', 'loading');
+  }
+
+  // ── Phase 1: fetch the complete static file from GitHub (fast CDN) ──
+  let staticData = null;
+  try {
+    const sep = STATIC_JSON_URL.indexOf('?') === -1 ? '?' : '&';
+    const res = await fetch(STATIC_JSON_URL + sep + 't=' + Date.now());
+    if (res.ok) {
+      const text = await res.text();
+      if (text.trim().startsWith('{')) {
+        const parsed = JSON.parse(text);
+        if (parsed.ok) {
+          staticData = parsed;
+          lsSet(LS_STATIC, parsed);
+          lsSet(LS_STATIC_TS, Date.now());
+        }
+      }
+    }
+  } catch(e) {
+    console.warn('Static file fetch failed:', e);
+  }
+
+  if (staticData) {
+    store = staticData;
+    buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+    stampUpdated();
+    setStatus('Data loaded.', 'ok');
+    setTimeout(hideStatus, 2000);
+    setBtnLoading(false);
+    return;
+  }
+
+  // ── Phase 2: file unreachable AND nothing cached → live Apps Script call ──
+  if (cachedStatic) {
+    // We already painted the cached file; a failed refresh is non-fatal.
+    setStatus('Showing last saved data.', 'ok');
+    setTimeout(hideStatus, 2500);
+    setBtnLoading(false);
+    return;
+  }
+
+  fetch(SCRIPT_URL + '?mode=full&cb=' + Date.now())
+    .then(r => r.json())
+    .then(fullData => {
+      if (!fullData.ok) throw new Error(fullData.error || 'Script error');
+      store = fullData;
+      lsSet(LS_STATIC, fullData);
+      lsSet(LS_STATIC_TS, Date.now());
+      buildWeekDropdowns(); buildLostWeekDropdown(); renderAll();
+      stampUpdated();
+      setStatus('Data loaded.', 'ok');
+      setTimeout(hideStatus, 2500);
+    })
+    .catch(e => {
+      console.warn('Live fallback failed:', e);
+      setStatus('Could not load data.', 'err');
+    })
+    .finally(() => setBtnLoading(false));
+}
+
+function stampUpdated() {
+  const now = new Date();
+  document.getElementById('updated-lbl').textContent =
+    'Updated ' + now.toLocaleDateString() + ' ' +
+    now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+// ── Dropdowns ─────────────────────────────────────────────────────────────
+function buildWeekDropdowns() {
+  const weeks = visits().weeks;
+  const yr    = parseInt(selYear);
+  const yrWks = [];
+  for (let i=0;i<weeks.length;i++) {
+    const w=weeks[i]; if(!w.label||w.year!==yr) continue;
+    yrWks.push({i,label:w.label});
+  }
+
+  // Find current week index: the week whose Monday <= today <= Sunday
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  // Get Monday of current week
+  const dow = today.getDay(); // 0=Sun
+  const diffToMon = dow === 0 ? -6 : 1 - dow;
+  const thisMon = new Date(today);
+  thisMon.setDate(today.getDate() + diffToMon);
+
+  // Find the week in yrWks whose Monday date matches thisMon
+  let currentWeekIdx = -1;
+  for (const {i, label} of yrWks) {
+    const parts = label.split('/');
+    if (parts.length !== 3) continue;
+    const wMon = new Date(parseInt(parts[2]), parseInt(parts[0])-1, parseInt(parts[1]));
+    if (wMon.getTime() === thisMon.getTime()) { currentWeekIdx = i; break; }
+  }
+  // If current week not found (future/no data yet), fall back to latest available
+  if (currentWeekIdx === -1 && yrWks.length > 0) {
+    currentWeekIdx = yrWks[yrWks.length-1].i;
+  }
+
+  // Single week dropdown (most recent first)
+  const sw = document.getElementById('week-sel');
+  sw.innerHTML = '';
+  for (let k=yrWks.length-1;k>=0;k--) {
+    const o=document.createElement('option');
+    o.value=yrWks[k].i; o.textContent=yrWks[k].label; sw.appendChild(o);
+  }
+  selWeekIdx = currentWeekIdx;
+  sw.value = currentWeekIdx;
+
+  // Range dropdowns (chronological)
+  const rf=document.getElementById('range-from');
+  const rt=document.getElementById('range-to');
+  rf.innerHTML='<option value="-1">Select start…</option>';
+  rt.innerHTML='<option value="-1">Select end…</option>';
+  for (const {i,label} of yrWks) {
+    const o1=document.createElement('option'); o1.value=i; o1.textContent=label; rf.appendChild(o1);
+    const o2=document.createElement('option'); o2.value=i; o2.textContent=label; rt.appendChild(o2);
+  }
+  // Default range: first week to current week
+  if (yrWks.length>=2) {
+    rangeFrom=yrWks[0].i; rangeTo=currentWeekIdx>=0?currentWeekIdx:yrWks[yrWks.length-1].i;
+    rf.value=rangeFrom; rt.value=rangeTo;
+  }
+}
+
+function onYearChange() {
+  selYear=document.getElementById('year-sel').value; selWeekIdx=-1;
+  buildWeekDropdowns();
+  buildLostWeekDropdown();
+  document.getElementById('vc-title').textContent='Weekly visits — '+selYear;
+  document.getElementById('rc-title').textContent='Weekly referrals — '+selYear;
+  renderAll();
+}
+function onWeekChange()     { selWeekIdx=parseInt(document.getElementById('week-sel').value); renderAll(); }
+function onRegionChange()   { selRegion=document.getElementById('region-sel').value; renderAll(); }
+function onCapRegionChange(){ capRegion=document.getElementById('cap-region-sel').value; renderCapacity(); }
+function onRangeChange() {
+  rangeFrom=parseInt(document.getElementById('range-from').value);
+  rangeTo  =parseInt(document.getElementById('range-to').value);
+  renderAll();
+}
+
+function setViewMode(mode, btn) {
+  viewMode=mode;
+  document.querySelectorAll('.mpbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('ctrl-single').style.display = mode==='single'?'flex':'none';
+  document.getElementById('ctrl-range').style.display  = mode==='range' ?'flex':'none';
+  document.getElementById('charts-section').style.display = mode==='single'?'':'none';
+  document.getElementById('snapshot-label').textContent = mode==='single'?'Weekly snapshot':'Date range summary';
+  renderAll();
+}
+
+function switchCap(mode,btn) {
+  capMode=mode;
+  document.querySelectorAll('.cap-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCapacity();
+}
+
+// Map an index from one dataset to the equivalent index in another, by week label.
+// The visits and referrals arrays can differ in length, so a raw index from one
+// must never be used to look into the other.
+function mapIdx(fromData, toData, idx) {
+  const label = (fromData.weeks[idx] || {}).label;
+  if (!label) return -1;
+  return toData.weeks.findIndex(w => w.label === label);
+}
+
+// ── Master render ─────────────────────────────────────────────────────────
+function renderAll() {
+  const v=visits(), r=referrals();
+  if (!v.weeks.length) return;
+  const [fromI, toI] = activeRange();
+
+  // Translate the visits-based range into referrals-array indices
+  let rFrom = mapIdx(v, r, fromI);
+  let rTo   = mapIdx(v, r, toI);
+  if (rFrom < 0) rFrom = Math.min(fromI, r.weeks.length - 1);
+  if (rTo   < 0) rTo   = Math.min(toI,   r.weeks.length - 1);
+
+  updateKPIs(v, r, fromI, toI, rFrom, rTo);
+  if (viewMode==='single') renderCharts(v, r, fromI);
+  renderClinicTable('vtbl','vtbl-h','vtbl-b','vtbl-empty', v, r, fromI, toI);
+  renderClinicTable('rtbl','rtbl-h','rtbl-b','rtbl-empty', r, v, rFrom, rTo);
+  renderCapacity();
+  renderLostVisits();
+  updateRangeHint(v, fromI, toI);
+}
+
+function updateRangeHint(v, fromI, toI) {
+  const hint=document.getElementById('range-hint');
+  if (viewMode!=='range'||fromI<0||toI<0){hint.style.display='none';return;}
+  const wks=v.weeks;
+  const n=toI-fromI+1;
+  hint.textContent = `${n} week${n!==1?'s':''}: ${(wks[fromI]||{}).label||'?'} – ${(wks[toI]||{}).label||'?'}`;
+  hint.style.display='';
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────
+// Compute total for a single week, respecting region filter
+function weekTotal(week, data, regF, regMap) {
+  if (!regF) return week.total || 0;
+  return (data.clinics || [])
+    .filter(c => regMap[c.toLowerCase()] === regF)
+    .reduce((s, c) => s + (week.values[c] || 0), 0);
+}
+
+// Get the most current visit count from lost visits for a given week label
+// (last day that has data — so mid-week this is e.g. Wednesday, end of week it's Friday PM)
+function currentVisitCount(label, regF, regMap) {
+  const lv = store.lostVisits || [];
+  const week = lv.find(w => w.label === label);
+  if (!week || !week.days || !week.days.length) return null;
+  // Find the last day with actual data
+  for (let d = week.days.length - 1; d >= 0; d--) {
+    const day = week.days[d];
+    if (!regF) {
+      if (day.companyTotal && day.companyTotal > 0) return day.companyTotal;
+    } else {
+      const val = (week.clinics || [])
+        .filter(c => regMap[c.toLowerCase()] === regF)
+        .reduce((s, c) => s + (day.values[c] || 0), 0);
+      if (val > 0) return val;
+    }
+  }
+  return null;
+}
+
+function updateKPIs(v, r, fromI, toI, rFrom, rTo) {
+  const regMap = buildRegionMap();
+  const regF   = selRegion === 'All' ? null : selRegion;
+  const yr     = parseInt(selYear);
+
+  // Referrals indices default to the visits ones if not supplied
+  if (rFrom == null) rFrom = fromI;
+  if (rTo   == null) rTo   = toI;
+
+  // For single week, use the most current count from lost visits (last day with data)
+  let vn;
+  if (viewMode === 'single') {
+    const selLabel = (v.weeks[fromI] || {}).label || '';
+    const current = currentVisitCount(selLabel, regF, regMap);
+    vn = current != null ? current : weekTotal(v.weeks[fromI] || {}, v, regF, regMap);
+  } else {
+    vn = v.weeks.slice(fromI, toI+1).reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
+  }
+
+  const rn = r.weeks.slice(rFrom, rTo+1).reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
+
+  // YTD must only sum weeks in the SELECTED YEAR up to the selected week.
+  // The weeks array holds multiple years, so slicing from index 0 would
+  // incorrectly include the prior year.
+  const cutoffDate = new Date((v.weeks[toI] || {}).label || 0);
+  const ytdV = v.weeks
+    .filter(w => w.year === yr && new Date(w.label) <= cutoffDate)
+    .reduce((s,w)=>s+weekTotal(w,v,regF,regMap), 0);
+  const ytdR = r.weeks
+    .filter(w => w.year === yr && new Date(w.label) <= cutoffDate)
+    .reduce((s,w)=>s+weekTotal(w,r,regF,regMap), 0);
+
+  const yrVW = v.weeks.filter(w=>w.year===yr&&weekTotal(w,v,regF,regMap)>0);
+  const yrRW = r.weeks.filter(w=>w.year===yr&&weekTotal(w,r,regF,regMap)>0);
+  const avgV = yrVW.length ? yrVW.reduce((s,w)=>s+weekTotal(w,v,regF,regMap),0)/yrVW.length : 0;
+  const avgR = yrRW.length ? yrRW.reduce((s,w)=>s+weekTotal(w,r,regF,regMap),0)/yrRW.length : 0;
+
+  set('kv', fmt(vn)); set('kr', fmt(rn));
+  set('ky', fmt(ytdV)); set('kys','YTD through '+((v.weeks[toI]||{}).label||''));
+  set('kyr',fmt(ytdR)); set('kyrs','YTD through '+((v.weeks[toI]||{}).label||''));
+
+  if (viewMode==='single') {
+    setDeltaAvg('kvs', vn, Math.round(avgV)||0);
+    setDeltaAvg('krs', rn, Math.round(avgR)||0);
+  } else {
+    const n=toI-fromI+1;
+    const el=document.getElementById('kvs');
+    if(el){el.textContent=n+' week'+(n!==1?'s':'')+' total';el.className='sub';}
+    const er=document.getElementById('krs');
+    if(er){er.textContent=n+' week'+(n!==1?'s':'')+' total';er.className='sub';}
+  }
+}
+
+function setDeltaAvg(id,val,avg){
+  const el=document.getElementById(id);if(!el)return;
+  const delta=val-avg;
+  el.textContent=(delta>=0?'+':'')+fmt(delta)+' vs '+fmt(avg)+' wk avg';
+  el.className='sub '+(delta>=0?'pos':'neg');
+}
+
+// ── Charts — ±2 weeks back, +1 week forward, region-aware ────────────────
+function renderCharts(v, r, wi) {
+  if (!v.weeks.length) return;
+  const isDark=matchMedia('(prefers-color-scheme:dark)').matches;
+  const grid=isDark?'rgba(255,255,255,.05)':'rgba(0,0,0,.05)';
+  const tick=isDark?'#9e9c96':'#6a6962';
+  const lblC=isDark?'#c8c6c0':'#2a2a28';
+  const avgLineColor=isDark?'rgba(168,92,8,.7)':'rgba(168,92,8,.8)';
+  const yr=parseInt(selYear);
+  const regMap=buildRegionMap();
+  const regF=selRegion==='All'?null:selRegion;
+
+  // Build index of all weeks in selected year
+  const yrWks=[];
+  v.weeks.forEach((w,i)=>{ if(w.year===yr) yrWks.push({w,i}); });
+
+  // Find selected week position in year array
+  const selInYr=yrWks.findIndex(x=>x.i===wi);
+
+  // Window: 2 back, selected, 1 forward
+  const winStart=Math.max(0, selInYr-2);
+  const winEnd  =Math.min(yrWks.length-1, selInYr+1);
+  const window  =yrWks.slice(winStart, winEnd+1);
+
+  const labels=[],vVals=[],rVals=[];
+  window.forEach(({w,i})=>{
+    labels.push(w.label);
+    // Visits: prefer lost visits current count, fall back to tracking summary
+    const lostCurrent = currentVisitCount(w.label, regF, regMap);
+    const trackingVal  = weekTotal(w, v, regF, regMap);
+    vVals.push(lostCurrent != null ? lostCurrent : trackingVal);
+    rVals.push(weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap));
+  });
+
+  const selInW=window.findIndex(x=>x.i===wi);
+  const ptR=labels.map((_,i)=>i===selInW?6:3);
+  const ptBg=c=>labels.map((_,i)=>i===selInW?c:c+'70');
+
+  // Avg across all data weeks in the year — same source as chart values
+  const allVVals=yrWks.map(({w,i})=>{
+    const lc=currentVisitCount(w.label,regF,regMap);
+    return lc!=null?lc:weekTotal(w,v,regF,regMap);
+  }).filter(v=>v>0);
+  const allRVals=yrWks.map(({w,i})=>weekTotal(r.weeks[i]||{values:{},total:0},r,regF,regMap)).filter(v=>v>0);
+  const avgV=allVVals.length?allVVals.reduce((s,v)=>s+v,0)/allVVals.length:0;
+  const avgR=allRVals.length?allRVals.reduce((s,v)=>s+v,0)/allRVals.length:0;
+
+  const mkDs=(vals,color)=>({
+    data:vals,borderColor:color,backgroundColor:color+'18',borderWidth:2,fill:true,tension:0.3,
+    pointRadius:ptR,pointBackgroundColor:ptBg(color),pointBorderColor:ptBg(color),pointHoverRadius:6,
+    datalabels:{
+      color:lblC,font:{size:10,weight:'600'},align:'top',anchor:'end',
+      display:true,
+      formatter:v=>v>0?Math.round(v).toLocaleString():''
+    }
+  });
+  const avgDs=(avg,label)=>({
+    label,data:labels.map(()=>Math.round(avg)),
+    borderColor:avgLineColor,borderWidth:1.5,borderDash:[4,4],
+    pointRadius:0,fill:false,tension:0,
+    datalabels:{
+      display:ctx=>ctx.dataIndex===labels.length-1,
+      color:avgLineColor,font:{size:9,weight:'600'},
+      align:'right',anchor:'end',
+      formatter:v=>'avg '+Math.round(v).toLocaleString()
+    }
+  });
+
+  const opts={
+    responsive:true,maintainAspectRatio:false,
+    layout:{padding:{top:24,right:60}},
+    plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false},datalabels:{}},
+    scales:{
+      x:{grid:{color:grid},ticks:{color:tick,font:{size:11}}},
+      y:{grid:{color:grid},ticks:{color:tick,font:{size:10}}}
+    }
+  };
+  mkChart('vc',labels,[mkDs(vVals,'#1756a0'),avgDs(avgV,'Avg')],opts,'v');
+  mkChart('rc',labels,[mkDs(rVals,'#26703a'),avgDs(avgR,'Avg')],opts,'r');
+}
+
+function mkChart(id,labels,datasets,options,key){
+  const ctx=document.getElementById(id).getContext('2d');
+  if(key==='v'&&vChart){vChart.destroy();vChart=null;}
+  if(key==='r'&&rChart){rChart.destroy();rChart=null;}
+  const c=new Chart(ctx,{type:'line',data:{labels,datasets},options});
+  if(key==='v')vChart=c;else rChart=c;
+}
+
+// ── Clinic tables ─────────────────────────────────────────────────────────
+// In single mode: show ±2 weeks window + yr avg column
+// In range mode: show summed totals for the range + avg per week column
+function renderClinicTable(tblId,hId,bId,emptyId,data,otherData,fromI,toI){
+  if(!data||!data.weeks.length)return;
+  const yr=parseInt(selYear);
+  const allWks=data.weeks.map((w,i)=>({w,i})).filter(x=>x.w.year===yr);
+
+  const thead=document.getElementById(hId),tbody=document.getElementById(bId);
+  thead.innerHTML='';tbody.innerHTML='';
+  const hr=thead.insertRow();
+
+  const regMap=buildRegionMap();
+  const regF=selRegion==='All'?null:selRegion;
+
+  // Yearly avg per clinic (all weeks with data)
+  const clinicAvg={};
+  for(const clinic of data.clinics){
+    const vals=allWks.map(x=>x.w.values[clinic]||0).filter(v=>v>0);
+    clinicAvg[clinic]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+  }
+
+  let showWeeks, isRange;
+
+  if (viewMode==='single') {
+    isRange=false;
+    const wi=fromI;
+    const wiInAll=allWks.findIndex(x=>x.i===wi);
+    const s=Math.max(0,wiInAll-1), e=Math.min(allWks.length-1,wiInAll+1);
+    showWeeks=allWks.slice(s,e+1);
+
+    addTH(hr,'Clinic');
+    addTH(hr,'Yr avg','r');
+    showWeeks.forEach(x=>{
+      const th=addTH(hr,x.w.label,'r');
+      if(x.i===wi)th.style.background='var(--accent-bg)';
+    });
+  } else {
+    isRange=true;
+    const rangeWks=allWks.filter(x=>x.i>=fromI&&x.i<=toI);
+    showWeeks=rangeWks;
+    const n=rangeWks.length;
+
+    addTH(hr,'Clinic');
+    addTH(hr,'Avg/wk','r');
+    addTH(hr,`Total (${n} wk${n!==1?'s':''})`.toLowerCase(),'r');
+  }
+
+  // Company total trackers
+  const coTotals = isRange ? [0,0] : showWeeks.map(()=>0);
+  let coSum=0, coAvgSum=0, clinicCount=0;
+
+  for(const clinic of data.clinics){
+    if(regF&&regMap[clinic.toLowerCase()]!==regF)continue;
+    clinicCount++;
+    const tr=tbody.insertRow(); addTD(tr,displayName(clinic));
+
+    if (!isRange) {
+      const avg=clinicAvg[clinic]||0;
+      coAvgSum+=avg;
+      const avgTd=addTD(tr,'','r');
+      avgTd.innerHTML=`<span style="font-weight:600">${fmt(avg)}</span>`;
+      let selV=0;
+      showWeeks.forEach((x,idx)=>{
+        const v=x.w.values[clinic]||0;
+        coTotals[idx]=(coTotals[idx]||0)+v;
+        const td=addTD(tr,v?fmt(v):'—','r');
+        if(x.i===fromI){selV=v;td.style.background='var(--accent-bg)';td.style.fontWeight='600';}
+      });
+    } else {
+      const rangeWks=showWeeks;
+      const total=rangeWks.reduce((s,x)=>s+(x.w.values[clinic]||0),0);
+      const n=rangeWks.length;
+      const avg=n>0?total/n:0;
+      coSum+=total; coAvgSum+=avg;
+      const aTd=addTD(tr,'','r');
+      aTd.innerHTML=`<span style="font-weight:600">${fmt(avg)}</span>`;
+      addTD(tr, total?fmt(total):'—','r');
+    }
+  }
+
+  // Company total row
+  const coTr=tbody.insertRow(); coTr.className='co-total';
+  addTD(coTr,'Company total');
+  if(!isRange){
+    addTD(coTr,fmt(coAvgSum),'r'); // yr avg first
+    showWeeks.forEach((_,idx)=>addTD(coTr,coTotals[idx]?fmt(coTotals[idx]):'—','r'));
+  } else {
+    const n=showWeeks.length;
+    addTD(coTr,n>0?fmt(coSum/n):'—','r'); // avg first
+    addTD(coTr,coSum?fmt(coSum):'—','r');
+  }
+
+  document.getElementById(emptyId).style.display='none';
+  document.getElementById(tblId).style.display='table';
+}
+
+// ── Capacity ──────────────────────────────────────────────────────────────
+// In range mode: average Mon/Fri pct across all weeks in range per therapist
+function renderCapacity(){
+  const grid=document.getElementById('cap-grid');
+  const noCapEl=document.getElementById('no-cap');
+  const allCap=store.capacity||[];
+  if(!allCap.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">Loading…</div>';return;}
+
+  const norm=s=>{if(!s)return'';const p=String(s).split('/');if(p.length===3)return parseInt(p[0])+'/'+parseInt(p[1])+'/'+p[2];return String(s).trim();};
+
+  let capRows;
+  if (viewMode==='single') {
+    const wi=curWI();
+    const selWeekLabel=(visits().weeks[wi]||{}).label||'';
+    const target=norm(selWeekLabel);
+    capRows=allCap.filter(r=>norm(r.week)===target);
+    if(capRows.length===0){
+      noCapEl.classList.add('show');
+      const sorted=[...new Set(allCap.map(r=>r.week).filter(Boolean))].sort((a,b)=>new Date(a)-new Date(b));
+      capRows=allCap.filter(r=>r.week===sorted[sorted.length-1]||'');
+    } else { noCapEl.classList.remove('show'); }
+  } else {
+    // Range: collect all cap rows for all weeks in range
+    const [fromI,toI]=activeRange();
+    const wks=visits().weeks;
+    const rangeLabels=new Set();
+    for(let i=fromI;i<=toI;i++){if(wks[i]&&wks[i].label)rangeLabels.add(norm(wks[i].label));}
+    capRows=allCap.filter(r=>rangeLabels.has(norm(r.week)));
+    noCapEl.classList.remove('show');
+  }
+
+  // Group by clinic→therapist, then if range average the pct values
+  const byClinic={};
+  if (viewMode==='single') {
+    for(const row of capRows){
+      const k=row.clinic;
+      const regionMap=buildRegionMap();
+      const resolvedRegion=row.region&&row.region!=='Unknown'?row.region:(regionMap[k.toLowerCase()]||'Unknown');
+      if(!byClinic[k])byClinic[k]={name:k,region:resolvedRegion,therapists:[]};
+      if(row.therapist&&row.therapist.trim())byClinic[k].therapists.push({...row});
+    }
+  } else {
+    // Aggregate multiple weeks per therapist
+    const tMap={}; // key: "clinic|therapist"
+    for(const row of capRows){
+      if(!row.therapist||!row.therapist.trim())continue;
+      const key=row.clinic+'|'+row.therapist;
+      if(!tMap[key]){tMap[key]={...row,_monPcts:[],_friPcts:[],_weeks:0,_monWk:0,_friWk:0};}
+      const t=tMap[key];
+      t._weeks++;
+      t.totalSlots=(t.totalSlots||0)+(row.totalSlots||0);
+      t.monScheduled=(t.monScheduled||0)+(row.monScheduled||0);
+      t.monOpen=(t.monOpen||0)+(row.monOpen||0);
+      t.monActualCap=(t.monActualCap||0)+(row.monActualCap||0);
+      t.friScheduled=(t.friScheduled||0)+(row.friScheduled||0);
+      t.friOpen=(t.friOpen||0)+(row.friOpen||0);
+      t.friActualCap=(t.friActualCap||0)+(row.friActualCap||0);
+      // Count only weeks that actually had visits SCHEDULED for each day, so a
+      // not-yet-scheduled current week (Friday booked = 0, common on a Monday)
+      // doesn't drag the Friday average toward zero. Keyed on scheduled > 0,
+      // not on capacity, since capacity can be set before anything is booked.
+      if((row.monScheduled||0)>0)t._monWk++;
+      if((row.friScheduled||0)>0)t._friWk++;
+      if(row.monPct!=null)t._monPcts.push(row.monPct);
+      if(row.friPct!=null)t._friPcts.push(row.friPct);
+    }
+    for(const t of Object.values(tMap)){
+      // Convert the summed counts to PER-WEEK AVERAGES so the capacity card
+      // reads like a typical week over the range, not a cumulative total.
+      // totalSlots uses all weeks; Mon/Fri counts use their own day's week count
+      // so a week with no Friday scheduling isn't counted against the Fri average.
+      const n   = t._weeks||1;
+      const nM  = t._monWk||n;
+      const nF  = t._friWk||n;
+      t.totalSlots   = t.totalSlots   / n;
+      t.monScheduled = t.monScheduled / nM;
+      t.monOpen      = t.monOpen      / nM;
+      t.monActualCap = t.monActualCap / nM;
+      t.friScheduled = t.friScheduled / nF;
+      t.friOpen      = t.friOpen      / nF;
+      t.friActualCap = t.friActualCap / nF;
+      // Percentages: average of the therapist's weekly % across weeks present.
+      t.monPct=t._monPcts.length?t._monPcts.reduce((s,v)=>s+v,0)/t._monPcts.length:null;
+      t.friPct=t._friPcts.length?t._friPcts.reduce((s,v)=>s+v,0)/t._friPcts.length:null;
+      const k=t.clinic;
+      if(!byClinic[k])byClinic[k]={name:k,region:t.region||'Unknown',therapists:[]};
+      byClinic[k].therapists.push(t);
+    }
+  }
+
+  let clinics=Object.values(byClinic);
+  // Apply region overrides for clinics not yet in capacity sheet
+  const regMap2=buildRegionMap();
+  clinics.forEach(c=>{
+    if(!c.region||c.region==='Unknown'){
+      c.region=regMap2[c.name.toLowerCase()]||'Unknown';
+    }
+  });
+  const regF=capRegion==='All'?null:capRegion;
+  if(regF)clinics=clinics.filter(c=>c.region===regF);
+  if(!clinics.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No clinics match this filter.</div>';return;}
+  clinics.sort((a,b)=>a.region.localeCompare(b.region)||a.name.localeCompare(b.name));
+
+  // Company total card
+  const allTherapists=clinics.flatMap(c=>c.therapists);
+  const coClinic={name:'Company total',region:'Unknown',therapists:allTherapists};
+
+  const cards=(capMode==='clinic'?clinics.map(clinicCard):[...clinics.map(therapistCard)]).join('');
+  // For clinic mode prepend company total card
+  if(capMode==='clinic'){
+    grid.innerHTML=clinicCard(coClinic,'company')+cards;
+  } else {
+    grid.innerHTML=cards;
+  }
+}
+
+function aggTherapists(ts){
+  if(!ts.length)return{};
+  const sum=key=>ts.reduce((s,t)=>s+(t[key]||0),0);
+  const wpct=key=>{
+    let wSum=0,tSum=0;
+    ts.forEach(t=>{const p=t[key],s=t.totalSlots||0;if(p!=null&&s>0){wSum+=p*s;tSum+=s;}});
+    return tSum>0?wSum/tSum:null;
+  };
+  return{
+    totalSlots:sum('totalSlots'),monScheduled:sum('monScheduled'),monOpen:sum('monOpen'),
+    monActualCap:sum('monActualCap'),monPct:wpct('monPct'),
+    friScheduled:sum('friScheduled'),friOpen:sum('friOpen'),
+    friActualCap:sum('friActualCap'),friPct:wpct('friPct'),
+  };
+}
+
+function clinicCard(c, override){
+  const a=aggTherapists(c.therapists);
+  const isCompany=override==='company';
+  // reg is always the real region for bar colors; header class separate
+  const reg=c.region||'Unknown';
+  const headCls=isCompany?'cc-head-company':('cc-head-'+reg);
+  const mp=a.monPct!=null?Math.round(a.monPct):null;
+  const fp=a.friPct!=null?Math.round(a.friPct):null;
+  const monBlocked=a.monActualCap!=null&&a.totalSlots!=null?Math.max(0,a.totalSlots-a.monActualCap):null;
+  const friBlocked=a.friActualCap!=null&&a.totalSlots!=null?Math.max(0,a.totalSlots-a.friActualCap):null;
+  return`<div class="clinic-card">
+    <div class="${headCls}">
+      <div class="cc-name">${displayName(c.name)}</div>
+    </div>
+    <div class="cap-day">
+      <div class="cap-day-lbl">Monday</div>
+      <div class="bar-meta">
+        <span>${a.monScheduled!=null?fmt(a.monScheduled)+' sched · '+fmt(a.monOpen)+' open'+(monBlocked?' · '+fmt(monBlocked)+' blocked':''):'—'}</span>
+        <span class="pct-val ${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill bar-mon-${reg}" style="width:${Math.min(mp||0,100)}%"></div></div>
+    </div>
+    <div class="cap-day">
+      <div class="cap-day-lbl">Friday</div>
+      <div class="bar-meta">
+        <span>${a.friScheduled!=null?fmt(a.friScheduled)+' sched · '+fmt(a.friOpen)+' open'+(friBlocked?' · '+fmt(friBlocked)+' blocked':''):'—'}</span>
+        <span class="pct-val ${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill bar-fri-${reg}" style="width:${Math.min(fp||0,100)}%"></div></div>
+    </div>
+    <div class="cc-stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:6px;padding-bottom:8px;border-bottom:0.5px solid var(--border)">
+      <div class="cc-stat"><span>${a.totalSlots!=null?fmt(a.totalSlots):'—'}</span>Total Capacity</div>
+      <div class="cc-stat"><span>${a.monActualCap!=null?fmt(a.monActualCap):'—'}</span>Act Cap</div>
+      <div class="cc-stat"><span>${(monBlocked!=null&&friBlocked!=null)?fmt((monBlocked||0)+(friBlocked||0)):'—'}</span>Tot Blocked</div>
+    </div>
+    <div class="cc-stats" style="grid-template-columns:repeat(4,1fr);border-top:none">
+      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon Sched</div>
+      <div class="cc-stat"><span>${a.monOpen!=null?fmt(a.monOpen):'—'}</span>Mon Open Slots</div>
+      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri Sched</div>
+      <div class="cc-stat"><span>${a.friOpen!=null?fmt(a.friOpen):'—'}</span>Fri Open Slots</div>
+    </div>
+  </div>`;
+}
+
+function therapistCard(c){
+  const a=aggTherapists(c.therapists);
+  const reg=c.region||'Unknown';
+  const mp=a.monPct!=null?Math.round(a.monPct):null;
+  const fp=a.friPct!=null?Math.round(a.friPct):null;
+  // Filter: only show therapists with >5 scheduled visits (Mon+Fri scheduled as proxy for visits)
+  const qualified=c.therapists.filter(t=>(t.monScheduled||0)+(t.friScheduled||0)>5);
+  const show=qualified.slice(0,8), more=qualified.length-8;
+  return`<div class="clinic-card">
+    <div class="cc-head-${reg}"><div class="cc-name">${displayName(c.name)}</div></div>
+    <div class="cc-stats" style="margin-bottom:10px">
+      <div class="cc-stat"><span>${a.monScheduled!=null?fmt(a.monScheduled):'—'}</span>Mon sched</div>
+      <div class="cc-stat"><span>${a.friScheduled!=null?fmt(a.friScheduled):'—'}</span>Fri sched</div>
+      <div class="cc-stat"><span class="${monPctCls(mp)}">${mp!=null?mp+'%':'—'}</span>Mon % cap</div>
+      <div class="cc-stat"><span class="${friPctCls(fp)}">${fp!=null?fp+'%':'—'}</span>Fri % cap</div>
+    </div>
+    <div class="t-list">
+      ${show.map(t=>{
+        const tm=t.monPct!=null?Math.round(t.monPct):null;
+        const tf=t.friPct!=null?Math.round(t.friPct):null;
+        return`<div>
+          <div class="t-top">
+            <span class="t-name">${t.therapist}</span>
+            <span class="badge ${monBadgeCls(tm)}">M: ${tm!=null?tm+'%':'—'}</span>
+            <span class="badge ${friBadgeCls(tf)}">F: ${tf!=null?tf+'%':'—'}</span>
+          </div>
+          <div class="t-slots">
+            <span class="t-detail">Mon sched: ${t.monScheduled??'—'} · open: ${t.monOpen??'—'}</span>
+            <span class="t-detail">Fri sched: ${t.friScheduled??'—'} · open: ${t.friOpen??'—'}</span>
+          </div>
+        </div>`;
+      }).join('')}
+      ${more>0?`<div style="font-size:11px;color:var(--faint);margin-top:2px">+${more} more therapists</div>`:''}
+    </div>
+  </div>`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function buildRegionMap(){
+  const m={};
+  for(const r of(store.capacity||[])){if(r.clinic&&r.region)m[r.clinic.toLowerCase()]=r.region;}
+  // Ensure FHV variants all resolve to Green
+  m['fhv']='Green'; m['fox hill']='Green'; m['fox hill village']='Green'; m['westwood']='Green';
+  // New clinics
+  m['middletown']='Orange';
+  return m;
+}
+
+// Normalize clinic names for display — maps internal sheet names to display names
+const CLINIC_DISPLAY = {
+  'FHV': 'Fox Hill',
+  'Fox Hill Village': 'Fox Hill',
+  'Fox Hill': 'Fox Hill',
+  'Westwood': 'Fox Hill',
+};
+function displayName(name) {
+  return CLINIC_DISPLAY[name] || name;
+}
+function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
+function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
+function monBadgeCls(p){return p==null?'x':p>=94?'g':p>=85?'w':'r';}
+function friBadgeCls(p){return p==null?'x':p>=88?'g':p>=80?'w':'r';}
+function pctCls(p){return monPctCls(p);}
+function badgeCls(p){return monBadgeCls(p);}
+function fmt(n){return Math.round(n).toLocaleString();}
+function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
+function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='show '+type;}
+function hideStatus(){document.getElementById('status').className='';}
+function addTH(row,text,cls){const th=document.createElement('th');th.textContent=text;if(cls)th.className=cls;row.appendChild(th);return th;}
+function addTD(row,text,cls){const td=document.createElement('td');td.textContent=text;if(cls)td.className=cls;row.appendChild(td);return td;}
+
+// ── Lost Visits ───────────────────────────────────────────────────────────
+function buildLostWeekDropdown() { /* no-op — uses main week selector */ }
+function onLostWeekChange() {}
+
+function renderLostVisits() {
+  const lv = store.lostVisits || [];
+  if (!lv.length) return;
+
+  const regMap = buildRegionMap();
+  const regF = selRegion === 'All' ? null : selRegion;
+  const thead = document.getElementById('lost-tbl-h');
+  const tbody  = document.getElementById('lost-tbl-b');
+  thead.innerHTML = ''; tbody.innerHTML = '';
+
+  if (viewMode === 'range') {
+    // ── Range mode: one column per week ──────────────────────────────────
+    // Collect all week labels in the active range
+    const [fromI, toI] = activeRange();
+    const vWeeks = visits().weeks;
+    const rangeLabels = [];
+    for (let i = fromI; i <= toI; i++) {
+      if (vWeeks[i] && vWeeks[i].label) rangeLabels.push(vWeeks[i].label);
+    }
+
+    // Match lost visit weeks to range labels
+    const rangeWeeks = rangeLabels.map(lbl => lv.find(w => w.label === lbl)).filter(Boolean);
+    if (!rangeWeeks.length) {
+      document.getElementById('lost-tbl-empty').textContent = 'No lost visit data for selected range.';
+      document.getElementById('lost-tbl-empty').style.display = '';
+      document.getElementById('lost-tbl').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('lost-tbl-title').textContent =
+      `Lost visits — ${rangeWeeks[0].label} to ${rangeWeeks[rangeWeeks.length-1].label}`;
+
+    // All clinics from first week (they're consistent across weeks)
+    const clinics = rangeWeeks[0].clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+
+    // Header: Clinic | % lost | Avg Mon AM | week1 | week2 ... | Total lost
+    const hr = thead.insertRow();
+    addTH(hr, 'Clinic');
+    addTH(hr, 'Avg % lost', 'r');
+    addTH(hr, 'Avg Mon AM', 'r');
+    rangeWeeks.forEach(w => addTH(hr, w.label, 'r'));
+    addTH(hr, 'Total lost', 'r');
+
+    // Per-clinic rows — each week cell shows Mon AM start / total lost
+    for (const clinic of clinics) {
+      const tr = tbody.insertRow(); addTD(tr, displayName(clinic));
+      let totalMonAM = 0, totalLost = 0, weekCount = 0;
+      const pcts = [];
+
+      const weekCells = rangeWeeks.map(w => {
+        const monAM = w.days[0] ? (w.days[0].values[clinic] || 0) : 0;
+        const lost  = w.totalLost[clinic] || 0;
+        const pct   = w.pctLost[clinic]  != null ? Math.abs(w.pctLost[clinic]) : null;
+        if (monAM > 0) { totalMonAM += monAM; totalLost += lost; weekCount++; if (pct != null) pcts.push(pct); }
+        return { monAM, lost, pct };
+      });
+
+      const avgPct   = pcts.length ? pcts.reduce((s,v)=>s+v,0)/pcts.length : null;
+      const avgMonAM = weekCount ? totalMonAM / weekCount : 0;
+
+      // Avg % lost
+      const pTd = addTD(tr, avgPct != null ? avgPct.toFixed(1)+'%' : '—', 'r');
+      pTd.style.color = lostPctColor(avgPct); pTd.style.fontWeight = '600';
+      // Avg Mon AM
+      addTD(tr, avgMonAM ? fmt(avgMonAM) : '—', 'r');
+      // Per-week cells: "start / -lost"
+      weekCells.forEach(({monAM, lost, pct}) => {
+        const td = addTD(tr, monAM ? fmt(monAM) : '—', 'r');
+        if (lost > 0) td.innerHTML += `<br><span style="font-size:10px;color:var(--red)">-${fmt(lost)}</span>`;
+      });
+      // Total lost
+      const lTd = addTD(tr, totalLost ? fmt(totalLost) : '—', 'r');
+      lTd.style.color = 'var(--red)'; lTd.style.fontWeight = '600';
+    }
+
+    // Company total row
+    const coTr = tbody.insertRow(); coTr.className = 'co-total';
+    addTD(coTr, 'Company total');
+    let coTotalMonAM=0, coTotalLost=0, coWeekCount=0;
+    const coPcts=[];
+    const coWeekCells = rangeWeeks.map(w => {
+      const monAM = w.days[0] ? (w.days[0].companyTotal||0) : 0;
+      const lost  = w.companyLostTotal || 0;
+      let lastVal = null;
+      for (let d=w.days.length-1;d>=1;d--){if(w.days[d].companyTotal>0){lastVal=w.days[d].companyTotal;break;}}
+      const pct = (monAM && lastVal && monAM>0) ? Math.abs((monAM-lastVal)/monAM*100) : null;
+      if (monAM>0){coTotalMonAM+=monAM;coTotalLost+=lost;coWeekCount++;if(pct!=null)coPcts.push(pct);}
+      return {monAM,lost,pct};
+    });
+    const coAvgPct=coPcts.length?coPcts.reduce((s,v)=>s+v,0)/coPcts.length:null;
+    const coP=addTD(coTr,coAvgPct!=null?coAvgPct.toFixed(1)+'%':'—','r');
+    coP.style.color=lostPctColor(coAvgPct);coP.style.fontWeight='600';
+    addTD(coTr,coWeekCount?fmt(coTotalMonAM/coWeekCount):'—','r');
+    coWeekCells.forEach(({monAM,lost})=>{
+      const td=addTD(coTr,monAM?fmt(monAM):'—','r');
+      if(lost>0)td.innerHTML+=`<br><span style="font-size:10px;color:var(--red)">-${fmt(lost)}</span>`;
+    });
+    const coL=addTD(coTr,coTotalLost?fmt(coTotalLost):'—','r');
+    coL.style.color='var(--red)';
+
+  } else {
+    // ── Single week mode ─────────────────────────────────────────────────
+    const visWI = curWI();
+    const visLabel = (visits().weeks[visWI] || {}).label || '';
+    let wi = lv.findIndex(w => w.label === visLabel);
+    if (wi < 0) {
+      const yr = parseInt(selYear);
+      for (let i=lv.length-1;i>=0;i--){if(lv[i].year===yr){wi=i;break;}}
+    }
+    if (wi < 0) wi = lv.length - 1;
+
+    const week = lv[wi];
+    if (!week) return;
+
+    document.getElementById('lost-tbl-title').textContent = 'Lost visits — week of ' + week.label;
+    const clinicsToShow = week.clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+
+    const hr = thead.insertRow();
+    addTH(hr, 'Clinic');
+    addTH(hr, '% lost', 'r');
+    week.days.forEach(d => addTH(hr, d.day, 'r'));
+    addTH(hr, 'Total lost', 'r');
+
+    // Company % lost row at top
+    const monAMcoTop = week.days[0] ? week.days[0].companyTotal : null;
+    const coTopTr = tbody.insertRow();
+    coTopTr.className = 'co-total';
+    coTopTr.style.borderBottom = '1.5px solid var(--border-md)';
+    addTD(coTopTr, 'Company % lost');
+    const coTopLastVal = (() => {
+      for (let d=week.days.length-1;d>=1;d--){if(week.days[d].companyTotal>0)return week.days[d].companyTotal;}
+      return null;
+    })();
+    const coTopOverallPct = (monAMcoTop&&coTopLastVal&&monAMcoTop>0)
+      ?Math.abs((monAMcoTop-coTopLastVal)/monAMcoTop*100):null;
+    const coTopSumTd=addTD(coTopTr,coTopOverallPct!=null?coTopOverallPct.toFixed(1)+'%':'—','r');
+    coTopSumTd.style.color=lostPctColor(coTopOverallPct);coTopSumTd.style.fontWeight='600';
+    week.days.forEach((d,idx)=>{
+      const dayTotal=d.companyTotal;
+      let pct=idx===0?0:(monAMcoTop&&dayTotal&&monAMcoTop>0?Math.abs((monAMcoTop-dayTotal)/monAMcoTop*100):null);
+      const td=addTD(coTopTr,pct!=null?pct.toFixed(1)+'%':'—','r');
+      td.style.color=lostPctColor(pct===0?0:pct);td.style.fontWeight='600';
+    });
+    addTD(coTopTr,'');
+
+    // Clinic rows
+    for (const clinic of clinicsToShow) {
+      const tr = tbody.insertRow(); addTD(tr, displayName(clinic));
+      const monAM = week.days[0] ? week.days[0].values[clinic] : null;
+      let lastVal=null;
+      for(let d=week.days.length-1;d>=1;d--){const v=week.days[d].values[clinic];if(v!=null&&v>0){lastVal=v;break;}}
+      const computedPct=(monAM&&lastVal&&monAM>0)?Math.abs((monAM-lastVal)/monAM*100)
+        :(week.pctLost[clinic]!=null?Math.abs(week.pctLost[clinic]):null);
+      const lost=week.totalLost[clinic]!=null?week.totalLost[clinic]:(monAM&&lastVal?monAM-lastVal:null);
+      const pTd=addTD(tr,computedPct!=null?computedPct.toFixed(1)+'%':'—','r');
+      pTd.style.color=lostPctColor(computedPct);pTd.style.fontWeight='600';
+      week.days.forEach(d=>{const v=d.values[clinic];addTD(tr,v!=null?fmt(v):'—','r');});
+      const lTd=addTD(tr,lost!=null?fmt(lost):'—','r');
+      lTd.style.color='var(--red)';lTd.style.fontWeight='600';
+    }
+
+    // Company total row at bottom
+    const coTr=tbody.insertRow();coTr.className='co-total';
+    addTD(coTr,'Company total');
+    const monAMco=week.days[0]?week.days[0].companyTotal:null;
+    let lastDayWithData=null;
+    for(let d=week.days.length-1;d>=1;d--){if(week.days[d].companyTotal&&week.days[d].companyTotal>0){lastDayWithData=week.days[d].companyTotal;break;}}
+    const coAbsPct=(monAMco&&lastDayWithData&&monAMco>0)?Math.abs((monAMco-lastDayWithData)/monAMco*100):null;
+    const coP=addTD(coTr,coAbsPct!=null?coAbsPct.toFixed(1)+'%':'—','r');
+    coP.style.color=lostPctColor(coAbsPct);coP.style.fontWeight='600';
+    week.days.forEach(d=>addTD(coTr,d.companyTotal!=null?fmt(d.companyTotal):'—','r'));
+    const coL=addTD(coTr,week.companyLostTotal!=null?fmt(week.companyLostTotal):'—','r');
+    coL.style.color='var(--red)';
+  }
+
+  document.getElementById('lost-tbl-empty').style.display = 'none';
+  document.getElementById('lost-tbl').style.display = 'table';
+}
+
+// <5% dark green, 5-10% green, 10-15% red, >15% dark red
+function lostPctColor(pct) {
+  if (pct == null) return 'var(--faint)';
+  if (pct < 5)  return '#155724';
+  if (pct < 10) return '#26703a';
+  if (pct < 15) return '#b02020';
+  return '#6b0000';
+}
+function setBtnLoading(on){
+  const btn=document.getElementById('refresh-btn');btn.disabled=on;
+  btn.innerHTML=on?'<span class="spin"></span> Loading…':
+    '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8a6.5 6.5 0 1 1 1.1 3.6"/><polyline points="1.5,12 1.5,8 5.5,8"/></svg> Refresh';
+}
+</script>
+</body>
+</html>
