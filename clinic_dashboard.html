@@ -912,7 +912,12 @@ function renderCapacity(){
     for(const row of capRows){
       if(!row.therapist||!row.therapist.trim())continue;
       const key=row.clinic+'|'+row.therapist;
-      if(!tMap[key]){tMap[key]={...row,_monPcts:[],_friPcts:[],_weeks:0,_monWk:0,_friWk:0};}
+      // Start the accumulator with ZEROED sums, carrying only identity fields.
+      // (Spreading {...row} here would pre-seed each sum with the first week's
+      // value and then double-count it in the loop below — inflating every count.)
+      if(!tMap[key]){tMap[key]={clinic:row.clinic,therapist:row.therapist,region:row.region,
+        totalSlots:0,monScheduled:0,monOpen:0,monActualCap:0,friScheduled:0,friOpen:0,friActualCap:0,
+        _monPcts:[],_friPcts:[],_weeks:0,_monWk:0,_friWk:0};}
       const t=tMap[key];
       t._weeks++;
       t.totalSlots=(t.totalSlots||0)+(row.totalSlots||0);
