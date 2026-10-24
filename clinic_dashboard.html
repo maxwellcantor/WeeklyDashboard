@@ -1073,8 +1073,8 @@ function therapistCard(c){
             <span class="badge ${friBadgeCls(tf)}">F: ${tf!=null?tf+'%':'—'}</span>
           </div>
           <div class="t-slots">
-            <span class="t-detail">Mon sched: ${t.monScheduled??'—'} · open: ${t.monOpen??'—'}</span>
-            <span class="t-detail">Fri sched: ${t.friScheduled??'—'} · open: ${t.friOpen??'—'}</span>
+            <span class="t-detail">Mon sched: ${fmt1(t.monScheduled)} · open: ${fmt1(t.monOpen)}</span>
+            <span class="t-detail">Fri sched: ${fmt1(t.friScheduled)} · open: ${fmt1(t.friOpen)}</span>
           </div>
         </div>`;
       }).join('')}
@@ -1111,6 +1111,13 @@ function friBadgeCls(p){return p==null?'x':p>=88?'g':p>=80?'w':'r';}
 function pctCls(p){return monPctCls(p);}
 function badgeCls(p){return monBadgeCls(p);}
 function fmt(n){return Math.round(n).toLocaleString();}
+// One-decimal formatter for per-therapist averaged values; drops a trailing .0
+// so whole numbers still read clean (e.g. 57 not 57.0, 52.5 stays 52.5).
+function fmt1(n){
+  if(n==null||isNaN(n))return '—';
+  const r=Math.round(n*10)/10;
+  return (Number.isInteger(r)?r.toString():r.toFixed(1));
+}
 function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
 function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='show '+type;}
 function hideStatus(){document.getElementById('status').className='';}
