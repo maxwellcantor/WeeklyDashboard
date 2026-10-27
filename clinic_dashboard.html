@@ -1053,7 +1053,7 @@ function therapistCard(c){
   const fp=a.friPct!=null?Math.round(a.friPct):null;
   // Filter: only show therapists with >5 scheduled visits (Mon+Fri scheduled as proxy for visits)
   const qualified=c.therapists.filter(t=>(t.monScheduled||0)+(t.friScheduled||0)>5);
-  const show=qualified.slice(0,8), more=qualified.length-8;
+  const show=qualified; // show all qualified therapists — no cap
   return`<div class="clinic-card">
     <div class="cc-head-${reg}"><div class="cc-name">${displayName(c.name)}</div></div>
     <div class="cc-stats" style="margin-bottom:10px">
@@ -1078,7 +1078,6 @@ function therapistCard(c){
           </div>
         </div>`;
       }).join('')}
-      ${more>0?`<div style="font-size:11px;color:var(--faint);margin-top:2px">+${more} more therapists</div>`:''}
     </div>
   </div>`;
 }
