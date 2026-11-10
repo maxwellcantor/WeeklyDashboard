@@ -1099,28 +1099,16 @@ const CLINIC_DISPLAY = {
   'Fox Hill Village': 'Fox Hill',
   'Fox Hill': 'Fox Hill',
   'Westwood': 'Fox Hill',
-  'Fall River': 'Connections',   // renamed clinic — sheet still says "Fall River"
 };
 function displayName(name) {
   return CLINIC_DISPLAY[name] || name;
 }
 
-// Reorder a clinic list to keep its existing (sheet) order, but move any clinic
-// whose DISPLAY name differs from its raw name to its correct alphabetical spot
-// among the display names. Used so a renamed clinic (Fall River → Connections)
-// sorts under its new name without reshuffling every other clinic.
+// Order a clinic list alphabetically by display name, so every clinic — including
+// ones that sit at the end of the sheet's column order (e.g. Fall River) — reads
+// in A–Z order consistently across all tables and cards.
 function orderClinics(list){
-  const renamed = list.filter(c => displayName(c) !== c);
-  if(!renamed.length) return list.slice();
-  const base = list.filter(c => displayName(c) === c);
-  const out = base.slice();
-  for(const c of renamed){
-    const dn = displayName(c).toLowerCase();
-    let i = out.findIndex(x => displayName(x).toLowerCase() > dn);
-    if(i < 0) i = out.length;
-    out.splice(i, 0, c);
-  }
-  return out;
+  return list.slice().sort((a,b)=>displayName(a).toLowerCase().localeCompare(displayName(b).toLowerCase()));
 }
 function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
 function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
