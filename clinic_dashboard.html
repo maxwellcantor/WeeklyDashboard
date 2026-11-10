@@ -971,7 +971,7 @@ function renderCapacity(){
   const regF=capRegion==='All'?null:capRegion;
   if(regF)clinics=clinics.filter(c=>c.region===regF);
   if(!clinics.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No clinics match this filter.</div>';return;}
-  clinics.sort((a,b)=>a.region.localeCompare(b.region)||displayName(a.name).localeCompare(displayName(b.name)));
+  clinics.sort((a,b)=>a.region.localeCompare(b.region)||sortKey(a.name).localeCompare(sortKey(b.name)));
 
   // Company total card
   const allTherapists=clinics.flatMap(c=>c.therapists);
@@ -1104,11 +1104,32 @@ function displayName(name) {
   return CLINIC_DISPLAY[name] || name;
 }
 
-// Order a clinic list alphabetically by display name, so every clinic — including
-// ones that sit at the end of the sheet's column order (e.g. Fall River) — reads
-// in A–Z order consistently across all tables and cards.
+// Sort-key override: a clinic that should sort somewhere other than where its
+// name alone would put it. Fall River was formerly "Dion PT" and kept its spot
+// by sheet order; after rebranding into a Connections clinic it should sit under
+// "C" — but still DISPLAY as "Fall River". So we sort it as "connections" while
+// its label is unchanged.
+const CLINIC_SORTKEY = {
+  'Fall River': 'connections',
+};
+function sortKey(name){
+  return (CLINIC_SORTKEY[name] || displayName(name)).toLowerCase();
+}
+
+// Keep the list in its existing (sheet) order, but move only the clinics that
+// have a sort-key override to the position that key dictates. Every other clinic
+// stays exactly where it was.
 function orderClinics(list){
-  return list.slice().sort((a,b)=>displayName(a).toLowerCase().localeCompare(displayName(b).toLowerCase()));
+  const overridden = list.filter(c => CLINIC_SORTKEY[c]);
+  if(!overridden.length) return list.slice();
+  const out = list.filter(c => !CLINIC_SORTKEY[c]);
+  for(const c of overridden){
+    const k = sortKey(c);
+    let i = out.findIndex(x => sortKey(x) > k);
+    if(i < 0) i = out.length;
+    out.splice(i, 0, c);
+  }
+  return out;
 }
 function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
 function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
