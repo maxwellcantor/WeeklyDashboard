@@ -820,7 +820,7 @@ function renderClinicTable(tblId,hId,bId,emptyId,data,otherData,fromI,toI){
   const coTotals = isRange ? [0,0] : showWeeks.map(()=>0);
   let coSum=0, coAvgSum=0, clinicCount=0;
 
-  for(const clinic of data.clinics){
+  for(const clinic of orderClinics(data.clinics)){
     if(regF&&regMap[clinic.toLowerCase()]!==regF)continue;
     clinicCount++;
     const tr=tbody.insertRow(); addTD(tr,displayName(clinic));
@@ -971,7 +971,7 @@ function renderCapacity(){
   const regF=capRegion==='All'?null:capRegion;
   if(regF)clinics=clinics.filter(c=>c.region===regF);
   if(!clinics.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No clinics match this filter.</div>';return;}
-  clinics.sort((a,b)=>a.region.localeCompare(b.region)||a.name.localeCompare(b.name));
+  clinics.sort((a,b)=>a.region.localeCompare(b.region)||displayName(a.name).localeCompare(displayName(b.name)));
 
   // Company total card
   const allTherapists=clinics.flatMap(c=>c.therapists);
@@ -1099,9 +1099,28 @@ const CLINIC_DISPLAY = {
   'Fox Hill Village': 'Fox Hill',
   'Fox Hill': 'Fox Hill',
   'Westwood': 'Fox Hill',
+  'Fall River': 'Connections',   // renamed clinic — sheet still says "Fall River"
 };
 function displayName(name) {
   return CLINIC_DISPLAY[name] || name;
+}
+
+// Reorder a clinic list to keep its existing (sheet) order, but move any clinic
+// whose DISPLAY name differs from its raw name to its correct alphabetical spot
+// among the display names. Used so a renamed clinic (Fall River → Connections)
+// sorts under its new name without reshuffling every other clinic.
+function orderClinics(list){
+  const renamed = list.filter(c => displayName(c) !== c);
+  if(!renamed.length) return list.slice();
+  const base = list.filter(c => displayName(c) === c);
+  const out = base.slice();
+  for(const c of renamed){
+    const dn = displayName(c).toLowerCase();
+    let i = out.findIndex(x => displayName(x).toLowerCase() > dn);
+    if(i < 0) i = out.length;
+    out.splice(i, 0, c);
+  }
+  return out;
 }
 function monPctCls(p){return p==null?'':p>=94?'pct-good':p>=85?'pct-warn':'pct-over';}
 function friPctCls(p){return p==null?'':p>=88?'pct-good':p>=80?'pct-warn':'pct-over';}
@@ -1160,7 +1179,7 @@ function renderLostVisits() {
       `Lost visits — ${rangeWeeks[0].label} to ${rangeWeeks[rangeWeeks.length-1].label}`;
 
     // All clinics from first week (they're consistent across weeks)
-    const clinics = rangeWeeks[0].clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+    const clinics = orderClinics(rangeWeeks[0].clinics).filter(c => !regF || regMap[c.toLowerCase()] === regF);
 
     // Header: Clinic | % lost | Avg Mon AM | week1 | week2 ... | Total lost
     const hr = thead.insertRow();
@@ -1242,7 +1261,7 @@ function renderLostVisits() {
     if (!week) return;
 
     document.getElementById('lost-tbl-title').textContent = 'Lost visits — week of ' + week.label;
-    const clinicsToShow = week.clinics.filter(c => !regF || regMap[c.toLowerCase()] === regF);
+    const clinicsToShow = orderClinics(week.clinics).filter(c => !regF || regMap[c.toLowerCase()] === regF);
 
     const hr = thead.insertRow();
     addTH(hr, 'Clinic');
